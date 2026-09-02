@@ -3,5 +3,6 @@ CLAUDE.md
 PLAN.md
 todo.md
 .claude
+.scratch
 __pycache__
 .pytest_cache
