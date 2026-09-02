@@ -1,16 +1,14 @@
-"""FastAPI router with SSE streaming endpoint.
+"""FastAPI router with SSE streaming and session management endpoints.
 
 ``create_router()`` returns a configured ``APIRouter``.  Call it from the
 application factory (e.g. ``app.include_router(create_router())``).
 
 Endpoints
 ---------
-GET /stream — stream structured chunks from LangGraph via SSE.
-
-Query params
-~~~~~~~~~~~~
-- ``graph_id``: registered graph identifier (default ``book_planner``)
-- ``state_json``: JSON-encoded initial state dict
+GET  /api/graphs          — list registered graphs (id + name).
+POST /api/sessions        — create a new session, return session_id + thread_id.
+POST /api/messages/{session_id} — send a message into a session and stream the response.
+GET  /stream              — legacy SSE streaming endpoint (query-param based).
 """
 
 from __future__ import annotations
@@ -19,13 +17,106 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+
+class CreateSessionRequest(BaseModel):
+    """Request body for POST /api/sessions."""
+
+    graph_id: str = "book_planner"
 
 
 def create_router() -> APIRouter:
-    """Build and return the API router with SSE endpoints."""
-    router = APIRouter()
+    """Build and return the API router with all endpoints."""
+    router = APIRouter(prefix="/api")
+
+    # ── graph listing ────────────────────────────────────────────────────
+
+    @router.get("/graphs")
+    async def list_graphs() -> dict[str, Any]:
+        """Return a dict of registered graph IDs to their metadata."""
+        from backend import list_graphs
+
+        graphs = list_graphs()
+        return {"graphs": graphs}
+
+    # ── session management ───────────────────────────────────────────────
+
+    @router.post("/sessions")
+    async def create_session(body: CreateSessionRequest) -> dict[str, str]:
+        """Create a new session for *body.graph_id*.
+
+        Returns
+        -------
+        dict with ``session_id``, ``thread_id``, and ``graph_id``.
+        """
+        from backend.session_manager import SessionManager
+
+        mgr = SessionManager()
+        return mgr.create_session(body.graph_id)
+
+    @router.post("/messages/{session_id}")
+    async def send_message(
+        session_id: str,
+        message: dict[str, Any],
+        request: Request,
+    ) -> StreamingResponse:
+        """Send a message into *session_id* and stream the graph response via SSE.
+
+        Parameters
+        ----------
+        session_id : str
+            The session ID returned by ``POST /api/sessions``.
+        message : dict
+            A state fragment to merge into the graph (e.g. ``{"messages": [...]}``).
+        """
+        from backend.session_manager import SessionManager
+        from langgraph.types import Command
+
+        mgr = SessionManager()
+        session = mgr.get_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found")
+
+        thread_id = session["thread_id"]
+        graph = session["graph"]
+
+        async def event_iterator() -> AsyncIterator[bytes]:
+            try:
+                result = graph.invoke(message, config={"configurable": {"thread_id": thread_id}})
+
+                # If the graph paused, yield an interrupt event and stop.
+                if "__interrupt__" in result:
+                    yield _format_sse(
+                        {
+                            "event": "interrupt",
+                            "data": {"reason": result["__interrupt__"][0].value},
+                        }
+                    ) + "\n\n"
+                    return
+
+                # Otherwise stream the final result as JSON.
+                yield _format_sse(
+                    {"event": "result", "data": result}
+                ) + "\n\n"
+            except Exception as exc:
+                yield _format_sse(
+                    {"event": "error", "data": {"detail": str(exc)}}
+                ) + "\n\n"
+
+        return StreamingResponse(
+            event_iterator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # ── legacy SSE stream endpoint ───────────────────────────────────────
 
     @router.get("/stream")
     async def stream(

@@ -54,6 +54,6 @@ def get_graph(graph_id: str) -> Any:
     return GRAPH_REGISTRY[graph_id]
 
 
-def list_graphs() -> Dict[str, str]:
-    """Return {id: id} mapping for introspection."""
-    return dict(GRAPH_REGISTRY)
+def list_graphs() -> list[str]:
+    """Return a list of registered graph IDs for introspection."""
+    return list(GRAPH_REGISTRY.keys())

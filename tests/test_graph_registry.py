@@ -69,9 +69,9 @@ def test_graph_is_ready(registry):
 
 
 def test_list_graphs():
-    """list_graphs returns a dict of registered IDs."""
+    """list_graphs returns a list of registered graph IDs."""
     from backend import list_graphs
 
     graphs = list_graphs()
-    assert isinstance(graphs, dict)
+    assert isinstance(graphs, list)
     assert "book_planner" in graphs
