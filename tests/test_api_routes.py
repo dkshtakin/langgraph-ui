@@ -81,9 +81,17 @@ def test_get_graphs_returns_dict(client):
     assert "graphs" in data
 
 
+def test_get_graphs_has_name_per_entry(graphs):
+    """Each entry in graphs[id] is a dict with a 'name' key."""
+    for meta in graphs.values():
+        assert isinstance(meta, dict)
+        assert "name" in meta
+
+
 def test_get_graphs_contains_registered(graphs):
     """The graphs dict includes at least book_planner."""
     assert "book_planner" in graphs
+    assert graphs["book_planner"]["name"] == "Book Planner"
 
 
 # ---------------------------------------------------------------------------
@@ -92,20 +100,23 @@ def test_get_graphs_contains_registered(graphs):
 
 
 def test_post_sessions_creates_session(client):
-    """POST /api/sessions returns session_id and thread_id."""
+    """POST /api/sessions returns session_id, thread_id, graph_id, and graph_name."""
     resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
     assert resp.status_code == 200
     data = resp.json()
     assert "session_id" in data
     assert "thread_id" in data
     assert "graph_id" in data
+    assert "graph_name" in data
 
 
 def test_post_sessions_default_graph(client):
-    """POST /api/sessions defaults to 'book_planner'."""
+    """POST /api/sessions defaults to 'book_planner' and includes graph_name."""
     resp = client.post("/api/sessions", json={})
     assert resp.status_code == 200
-    assert resp.json()["graph_id"] == "book_planner"
+    data = resp.json()
+    assert data["graph_id"] == "book_planner"
+    assert data["graph_name"] == "Book Planner"
 
 
 # ---------------------------------------------------------------------------

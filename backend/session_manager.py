@@ -23,7 +23,7 @@ from langchain.messages import AnyMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from backend import GRAPH_REGISTRY
+from backend import GRAPH_REGISTRY, get_graph_name
 
 
 # Module-level singleton — shared across all requests.
@@ -73,6 +73,7 @@ class SessionManager:
             "session_id": session_id,
             "thread_id": thread_id,
             "graph_id": graph_id,
+            "graph_name": get_graph_name(graph_id),
         }
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:

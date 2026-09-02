@@ -5,7 +5,8 @@ imports each one and populates ``GRAPH_REGISTRY`` with the compiled graphs.
 
 Public API:
     - ``get_graph(graph_id)`` → compiled graph
-    - ``list_graphs()`` → dict of {id: id}
+    - ``list_graphs()`` → dict of {id: {"name": str}}
+    - ``get_graph_name(graph_id)`` → graph display name
     - ``GRAPH_REGISTRY`` → dict of all registered graphs
 """
 
@@ -19,14 +20,22 @@ _GRAPH_MODULES = [
 ]
 
 
-def _compile_registry(modules: list[str]) -> Dict[str, Any]:
-    """Import each module and register its compiled graph."""
+def _compile_registry(modules: list[str]) -> tuple[Dict[str, Any], Dict[str, str]]:
+    """Import each module and register its compiled graph.
+
+    Returns
+    -------
+    tuple
+        (registry, names) where ``names`` maps id → display name.
+    """
     registry: Dict[str, Any] = {}
+    names: Dict[str, str] = {}
 
     for mod_name in modules:
         mod = __import__(mod_name, fromlist=["id", "name", "build"])
         graph_id = getattr(mod, "id", None)
         graph_build = getattr(mod, "build", None)
+        graph_name = getattr(mod, "name", None)
 
         if graph_id is None or graph_build is None:
             raise ValueError(
@@ -35,11 +44,13 @@ def _compile_registry(modules: list[str]) -> Dict[str, Any]:
 
         compiled = graph_build()
         registry[graph_id] = compiled
+        if graph_name is not None:
+            names[graph_id] = graph_name
 
-    return registry
+    return registry, names
 
 
-GRAPH_REGISTRY: Dict[str, Any] = _compile_registry(_GRAPH_MODULES)
+GRAPH_REGISTRY, _GRAPH_NAMES = _compile_registry(_GRAPH_MODULES)
 
 
 def get_graph(graph_id: str) -> Any:
@@ -54,6 +65,15 @@ def get_graph(graph_id: str) -> Any:
     return GRAPH_REGISTRY[graph_id]
 
 
-def list_graphs() -> list[str]:
-    """Return a list of registered graph IDs for introspection."""
-    return list(GRAPH_REGISTRY.keys())
+def get_graph_name(graph_id: str) -> str:
+    """Return the display name for *graph_id*."""
+    return _GRAPH_NAMES.get(graph_id, graph_id)
+
+
+def list_graphs() -> Dict[str, Dict[str, str]]:
+    """Return a dict mapping graph id → {name: display_name}.
+
+    Iterates over ``GRAPH_REGISTRY`` so every registered graph appears,
+    even if it lacks a ``name`` attribute (falls back to the id).
+    """
+    return {id_: {"name": get_graph_name(id_)} for id_ in GRAPH_REGISTRY}
