@@ -17,6 +17,7 @@ from typing import Dict, Any
 # Declare every graph module here — __init__.py compiles them all at startup.
 _GRAPH_MODULES = [
     "backend.graphs.book_planner",
+    "backend.graphs.test_flow",
 ]
 
 
