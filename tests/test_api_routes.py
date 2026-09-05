@@ -3,7 +3,8 @@
 Covers:
 - GET /api/graphs — returns registered graph list
 - POST /api/sessions — creates a session, returns session_id + thread_id
-- POST /api/messages/{session_id} — sends a message, handles not-found
+- POST /api/resume/{session_id} — sends a user message, handles not-found, interrupts
+- DELETE /api/sessions/{session_id} — deletes a session, handles not-found
 - Error cases: 404 for unknown session
 """
 
@@ -18,6 +19,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from backend.api.routes import create_router
+from tests._sse_helpers import parse_sse_events
 
 
 # ---------------------------------------------------------------------------
@@ -120,26 +122,26 @@ def test_post_sessions_default_graph(client):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/messages/{session_id}
+# POST /api/resume/{session_id}
 # ---------------------------------------------------------------------------
 
 
-def test_post_messages_404_on_unknown_session(client):
-    """POST /api/messages returns 404 for an unknown session."""
-    resp = client.post("/api/messages/nonexistent", json={"messages": [], "stage": "dialog"})
+def test_post_resume_404_on_unknown_session(client):
+    """POST /api/resume returns 404 for an unknown session."""
+    resp = client.post("/api/resume/nonexistent", json={"text": "hello"})
     assert resp.status_code == 404
 
 
-def test_post_messages_interrupt_signal(client):
-    """POST /api/messages yields an interrupt event for a paused graph."""
+def test_post_resume_interrupt_signal(client):
+    """POST /api/resume yields an interrupt event for a paused graph."""
     # Create a session.
     session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
     session_id = session_resp.json()["session_id"]
 
     # Send a message — the graph should pause.
     resp = client.post(
-        f"/api/messages/{session_id}",
-        json={"messages": [], "stage": "dialog"},
+        f"/api/resume/{session_id}",
+        json={"text": "hello"},
     )
     assert resp.status_code == 200
     # Read SSE events.
@@ -149,32 +151,52 @@ def test_post_messages_interrupt_signal(client):
 
 
 def test_integration_session_lifecycle(client):
-    """End-to-end flow: create session → send message (pause) → resume → result."""
-    from langgraph.types import Command
-
+    """End-to-end flow: create session → resume (pause) → resume → result via API only."""
     # 1. Create a session.
     session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
     assert session_resp.status_code == 200
     session_id = session_resp.json()["session_id"]
-    thread_id = session_resp.json()["thread_id"]
 
-    # 2. Send a message — graph should pause at interrupt (stage=dialog).
-    resp = client.post(
-        f"/api/messages/{session_id}",
-        json={"messages": [], "stage": "dialog"},
-    )
+    # 2. First resume — graph should pause at interrupt (stage=dialog).
+    resp = client.post(f"/api/resume/{session_id}", json={"text": "hello"})
     assert resp.status_code == 200
-    lines = resp.text.split("\n")
-    events = [line for line in lines if line.startswith("event:")]
-    assert any("interrupt" in e for e in events), "Graph should pause at interrupt"
+    events = parse_sse_events(resp.text)
+    event_types = [e["event"] for e in events]
+    assert "interrupt" in event_types, "Graph should pause at interrupt"
 
-    # 3. Resume with Command — graph should complete (stage=next → finish node).
-    # The session manager is a singleton, so we can call resume() directly here.
+    # 3. Second resume — graph completes (stage=next → finish node).
+    resp = client.post(f"/api/resume/{session_id}", json={"text": "user reply"})
+    assert resp.status_code == 200
+    events = parse_sse_events(resp.text)
+    result_events = [e for e in events if e["event"] == "result"]
+    assert len(result_events) == 1, "Should emit exactly one result event"
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/sessions/{session_id}
+# ---------------------------------------------------------------------------
+
+
+def test_delete_session_404_on_unknown_session(client):
+    """DELETE /api/sessions returns 404 for an unknown session."""
+    resp = client.delete("/api/sessions/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_delete_session_succeeds(client):
+    """DELETE /api/sessions removes the session and returns deleted=True."""
+    session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+
+    delete_resp = client.delete(f"/api/sessions/{session_id}")
+    assert delete_resp.status_code == 200
+    assert delete_resp.json()["deleted"] is True
+
     from backend.session_manager import SessionManager
 
     mgr = SessionManager()
-    result = mgr.resume(thread_id, Command(resume="user reply"))
-    assert "__interrupt__" not in result, "After resume graph should not be interrupted"
+    assert mgr.get_session(session_id) is None
 
 
 @pytest.fixture

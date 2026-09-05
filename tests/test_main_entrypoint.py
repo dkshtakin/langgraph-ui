@@ -45,7 +45,8 @@ def test_openapi_lists_all_endpoints(client):
     for expected in [
         "/api/graphs",
         "/api/sessions",
-        "/api/messages/{session_id}",
+        "/api/resume/{session_id}",
+        "/api/sessions/{session_id}",
         "/api/stream",
     ]:
         assert expected in paths
