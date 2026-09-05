@@ -1,21 +1,21 @@
-"""Test flow graph — interrupt + fake LLM node.
+"""LLM flow graph — interrupt + real LLM node.
 
-Used for E2E session lifecycle tests without requiring a real LLM.
+Used for E2E session lifecycle tests with a real model call.
 
 Graph structure::
 
     START → pause ───(interrupt when stage=="dialog")──→ (resume signal)
                                             ↓
-                                    fake_llm_node → END
+                                    real_llm_node → END
 
 State: ``{messages, result, stage}``
 """
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
 
+from backend.config.llm import chat
 from backend.graphs.common import FlowState, pause_node
 
 
@@ -24,10 +24,11 @@ from backend.graphs.common import FlowState, pause_node
 # ---------------------------------------------------------------------------
 
 
-def fake_llm_node(state: FlowState) -> dict:
-    """Fake LLM node — returns a canned AIMessage without calling any model."""
+def real_llm_node(state: FlowState) -> dict:
+    """Real LLM node — calls the configured model via ``chat.invoke(...)``."""
+    response = chat.invoke(state["messages"])
     return {
-        "messages": [AIMessage(content="message received")],
+        "messages": [response],
         "result": "ok",
         "stage": "done",
     }
@@ -39,18 +40,18 @@ def fake_llm_node(state: FlowState) -> dict:
 
 
 def build() -> object:
-    """Build and compile the test-flow graph.
+    """Build and compile the llm-flow graph.
 
     Returns a compiled LangGraph graph ready to run.
     """
     builder = StateGraph(FlowState)
 
     builder.add_node("pause", pause_node)
-    builder.add_node("fake_llm", fake_llm_node)
+    builder.add_node("real_llm", real_llm_node)
 
     builder.add_edge(START, "pause")
-    builder.add_edge("pause", "fake_llm")
-    builder.add_edge("fake_llm", END)
+    builder.add_edge("pause", "real_llm")
+    builder.add_edge("real_llm", END)
 
     return builder.compile()
 
@@ -59,5 +60,5 @@ def build() -> object:
 # Graph identity (for registry auto-discovery)
 # ---------------------------------------------------------------------------
 
-id: str = "test_flow"
-name: str = "Test Flow"
+id: str = "llm_flow"
+name: str = "LLM Flow"
