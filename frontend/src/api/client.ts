@@ -1,0 +1,27 @@
+export interface Session {
+  session_id: string
+  thread_id: string
+  graph_id: string
+  graph_name: string
+}
+
+export async function createSession(graphId = 'book_planner'): Promise<Session> {
+  const res = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ graph_id: graphId }),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to create session: ${res.status} ${res.statusText}`)
+  }
+  return res.json() as Promise<Session>
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok && res.status !== 200) {
+    throw new Error(`Failed to delete session: ${res.status}`)
+  }
+}
