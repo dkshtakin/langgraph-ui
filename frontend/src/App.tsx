@@ -86,12 +86,13 @@ export default function App() {
         setLiveStream(null)
       },
       onError: (detail) => {
-        console.error('Stream error:', detail)
+        // Show the real error message so the user can understand what went wrong.
+        console.error('[App] stream error:', detail, 'type:', typeof detail)
         state = 'idle'
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
-              ? { ...m, text: '(Ошибка генерации)', reasoning: '' }
+              ? { ...m, text: `⚠️ Ошибка: ${detail}`.slice(0, 500), reasoning: '' }
               : m,
           ),
         )

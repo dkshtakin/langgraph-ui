@@ -15,6 +15,8 @@ GET     /stream                — legacy SSE streaming endpoint (query-param ba
 from __future__ import annotations
 
 import json
+import logging
+import traceback
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -22,6 +24,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class CreateSessionRequest(BaseModel):
@@ -119,9 +123,9 @@ def create_router() -> APIRouter:
         config = {"configurable": {"thread_id": thread_id}}
 
         async def event_iterator() -> AsyncIterator[bytes]:
-            try:
-                from backend.streaming_parser import flush_buffer, parse_reasoning
+            from backend.streaming_parser import flush_buffer, parse_reasoning
 
+            try:
                 history = list(graph.checkpointer.list(config))
 
                 if history:
@@ -137,10 +141,12 @@ def create_router() -> APIRouter:
                 run = await graph.astream_events(
                     input_val, version="v3", config=config
                 )
-                try:
-                    output_buffer = ""
-                    in_reasoning = False
 
+                output_buffer = ""
+                in_reasoning = False
+                graph_error: Exception | None = None
+
+                try:
                     async for event in run:
                         channel = event.get("method", "")
                         if channel != "messages":
@@ -155,6 +161,8 @@ def create_router() -> APIRouter:
                         if not isinstance(msg_data, dict):
                             continue
 
+                        logger.debug("[resume] event from graph: %s", msg_data.get("event"))
+
                         if msg_data.get("event") == "content-block-delta":
                             delta = msg_data.get("delta", {}) or {}
                             if delta.get("type") == "text-delta":
@@ -167,6 +175,7 @@ def create_router() -> APIRouter:
                                     text, output_buffer, in_reasoning
                                 )
                                 for chunk in new_chunks:
+                                    logger.debug("[resume] yielding SSE event=%s content=%r", chunk["type"], chunk["content"][:50])
                                     yield _format_sse(
                                         {"event": chunk["type"], "data": {"content": chunk["content"]}}
                                     ) + "\n\n"
@@ -181,19 +190,35 @@ def create_router() -> APIRouter:
                                 yield _format_sse(
                                     {"event": chunk["type"], "data": {"content": chunk["content"]}}
                                 ) + "\n\n"
+                except Exception as exc:
+                    logger.error("[resume] graph iteration error: %s", exc)
+                    graph_error = exc
 
-                    # Flush any remaining buffered text — mirrors the final flush
-                    # in sse_streaming.py before yielding the end marker.
+                # Flush any remaining buffered text — mirrors the final flush
+                # in sse_streaming.py before yielding the end marker.
+                if graph_error is None:
                     output_buffer, in_reasoning, final_flushed = flush_buffer(
                         output_buffer, in_reasoning
                     )
                     for chunk in final_flushed:
+                        logger.debug("[resume] final flush SSE event=%s", chunk["type"])
                         yield _format_sse(
                             {"event": chunk["type"], "data": {"content": chunk["content"]}}
-                        ) + "\n\n"
+                            ) + "\n\n"
 
-                finally:
-                    was_interrupted = await run.interrupted()
+                # Determine final event — error takes priority over done/interrupt
+                if graph_error is not None:
+                    yield _format_sse(
+                        {"event": "error", "data": {"detail": f"{type(graph_error).__name__}: {graph_error}"}}
+                    ) + "\n\n"
+                else:
+                    try:
+                        was_interrupted = await run.interrupted()
+                        logger.debug("[resume] interrupted=%s", was_interrupted)
+                    except Exception as ierr:
+                        logger.error("[resume] interrupted() raised: %s", ierr)
+                        was_interrupted = False
+
                     if was_interrupted:
                         interrupts_list = await run.interrupts()
                         if interrupts_list:
@@ -203,14 +228,18 @@ def create_router() -> APIRouter:
                             reason = interrupt_value.get("reason", "unknown") if isinstance(interrupt_value, dict) else str(interrupt_value)
                         else:
                             reason = "unknown"
+                        logger.debug("[resume] yielding interrupt event, reason=%s", reason)
                         yield _format_sse(
                             {"event": "interrupt", "data": {"reason": reason}}
                         ) + "\n\n"
                     else:
+                        logger.debug("[resume] yielding done event")
                         yield _format_sse({"event": "done", "data": {}}) + "\n\n"
+
             except Exception as exc:
+                tb = traceback.format_exc()
                 yield _format_sse(
-                    {"event": "error", "data": {"detail": str(exc)}}
+                    {"event": "error", "data": {"detail": f"{type(exc).__name__}: {exc}\n\n{tb}"}}
                 ) + "\n\n"
 
         return StreamingResponse(
@@ -261,7 +290,8 @@ def create_router() -> APIRouter:
                         break
                     yield _format_sse(sse_chunk) + "\n\n"
             except Exception as exc:
-                yield _format_sse({"event": "error", "data": {"detail": str(exc)}}) + "\n\n"
+                tb = traceback.format_exc()
+                yield _format_sse({"event": "error", "data": {"detail": f"{type(exc).__name__}: {exc}\n\n{tb}"}}) + "\n\n"
 
         return StreamingResponse(
             event_iterator(),

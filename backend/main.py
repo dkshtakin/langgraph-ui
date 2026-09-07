@@ -16,11 +16,15 @@ to FastAPI — start both servers separately::
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+# Enable debug-level logging so SSE streaming internals are visible.
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
 
 from backend.api.routes import create_router
 

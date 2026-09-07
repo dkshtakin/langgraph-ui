@@ -58,6 +58,21 @@ export function streamResume(
     signal: controller.signal,
   })
     .then(async (response) => {
+      if (!response.ok) {
+        const ct = response.headers.get('content-type') || ''
+        let errorText = `HTTP ${response.status} ${response.statusText}`
+        try {
+          const json = await response.json() as Record<string, unknown>
+          errorText += ` — ${(json.detail as string | undefined) ?? JSON.stringify(json)}`
+        } catch {
+          // plain-text body — nothing to extract
+        }
+        console.error('[sseClient] non-OK response:', response.status, errorText)
+        callbacks.onError?.(errorText)
+        callbacks.onComplete?.()
+        return
+      }
+
       const reader = response.body?.getReader()
       if (!reader) {
         callbacks.onError?.('No response body')
@@ -67,16 +82,29 @@ export function streamResume(
 
       const decoder = new TextDecoder()
       let buffer = ''
+      // SSE sends "event:" and "data:" on separate lines; track the current
+      // event type so the following data line is merged into the same message.
+      let pendingEventType: 'answer' | 'reasoning' | null = null
 
       try {
         // eslint-disable-next-line no-constant-condition
         while (true) {
           if (controller.signal.aborted) break
 
-          const { done, value } = await reader.read()
-          if (done) break
+          let chunk: string
+          try {
+            const result = await reader.read()
+            if (result.done) break
+            chunk = decoder.decode(result.value, { stream: true })
+          } catch (readErr) {
+            // Broken pipe / connection reset — surface to the client
+            console.error('[sseClient] read failed:', readErr)
+            callbacks.onError?.(String(readErr))
+            callbacks.onComplete?.()
+            return
+          }
 
-          buffer += decoder.decode(value, { stream: true })
+          buffer += chunk
 
           // Process complete SSE messages
           const lines = buffer.split('\n')
@@ -87,19 +115,48 @@ export function streamResume(
             const parsed = parseSseLine(line)
             if (!parsed) continue
 
-            if (parsed.event === 'answer' || parsed.event === 'reasoning') {
-              const content = (parsed.data as any)?.content as string | undefined
-              if (content !== undefined) {
-                callbacks.onChunk?.(parsed.event, content)
+            try {
+              // "event: answer/reasoning" — stash type and wait for the data line
+              if (parsed.event === 'answer' || parsed.event === 'reasoning') {
+                pendingEventType = parsed.event
+                continue
               }
-            } else if (parsed.event === 'interrupt') {
-              const reason = (parsed.data as any)?.reason as string || 'unknown'
-              callbacks.onInterrupt?.(reason)
-            } else if (parsed.event === 'done') {
-              callbacks.onDone?.()
-            } else if (parsed.event === 'error') {
-              const detail = (parsed.data as any)?.detail as string || 'Unknown error'
-              callbacks.onError?.(detail)
+
+              // Terminal events carry their payload in the same "data:" line
+              if (parsed.event === 'interrupt' || parsed.event === 'done' || parsed.event === 'error') {
+                const detail = (parsed.data as any)?.detail as string | undefined
+                const reason = (parsed.data as any)?.reason as string || 'unknown'
+
+                if (parsed.event === 'interrupt') {
+                  console.log('[sseClient] interrupt:', reason)
+                  callbacks.onInterrupt?.(reason)
+                } else if (parsed.event === 'done') {
+                  console.log('[sseClient] done')
+                  callbacks.onDone?.()
+                } else {
+                  console.log('[sseClient] error event received, detail:', detail?.slice(0, 800))
+                  callbacks.onError?.(detail ?? 'Generation failed — see console for details')
+                }
+                pendingEventType = null
+                continue
+              }
+
+              // "data:" line without a preceding "event:" — ignore
+              if (parsed.event === 'data' && pendingEventType === null) {
+                continue
+              }
+
+              // "data:" line completing a pending answer/reasoning event
+              if (parsed.event === 'data' && pendingEventType !== null) {
+                const content = (parsed.data as any)?.content as string | undefined
+                if (content !== undefined) {
+                  console.log('[sseClient] chunk:', pendingEventType, content.slice(0, 50))
+                  callbacks.onChunk?.(pendingEventType, content)
+                }
+                pendingEventType = null
+              }
+            } catch (cbErr) {
+              console.error('[sseClient] callback threw:', cbErr)
             }
           }
         }
@@ -109,10 +166,12 @@ export function streamResume(
       }
     })
     .catch((err: unknown) => {
-      if ((err as { name?: string }).name !== 'AbortError') {
-        const detail = (err as { message?: string }).message ?? String(err)
-        callbacks.onError?.(detail)
-      }
+      const name = (err as { name?: string }).name
+      if (name === 'AbortError') return // user-initiated cancel, not an error
+
+      const detail = (err as { message?: string }).message ?? String(err)
+      console.error('[sseClient] fetch threw:', err)
+      callbacks.onError?.(detail)
       callbacks.onComplete?.()
     })
 
