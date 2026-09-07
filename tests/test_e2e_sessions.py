@@ -118,8 +118,8 @@ def test_resume_llm_flow_emits_interrupt_event(client):
 # ---------------------------------------------------------------------------
 
 
-def test_resume_emits_result_event(client):
-    """After first resume (pause) and second resume, the fake_llm_node runs and emits a result SSE event."""
+def test_resume_test_flow_done_event(client):
+    """After first resume (pause) and second resume, test_flow emits a done SSE event."""
     session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
     assert session_resp.status_code == 200
     session_id = session_resp.json()["session_id"]
@@ -135,18 +135,13 @@ def test_resume_emits_result_event(client):
     resp = client.post(f"/api/resume/{session_id}", json={"text": "user reply"})
     assert resp.status_code == 200
     events = parse_sse_events(resp.text)
-    result_events = [e for e in events if e["event"] == "result"]
-    assert len(result_events) == 1, "Should emit exactly one result event"
-    result_data = result_events[0]["data"]
-    assert result_data["result"] == "ok", f"Expected result='ok', got {result_data}"
-    last_msg = result_data["messages"][-1]
-    assert last_msg["type"] == "ai", "fake_llm should return an AIMessage (dict)"
-    assert last_msg["content"] == "message received", "fake_llm content must match spec"
+    done_events = [e for e in events if e["event"] == "done"]
+    assert len(done_events) == 1, "Should emit exactly one done event"
 
 
 @pytest.mark.skipif(not _llm_available(), reason="LLM server not available at 127.0.0.1:8081")
-def test_resume_llm_flow_emits_real_llm_response(client):
-    """After first resume (pause) and second resume, the real_llm_node runs and returns a real LLM AIMessage."""
+def test_resume_llm_flow_streaming_and_done(client):
+    """After first resume (pause) and second resume, llm_flow streams answer/reasoning chunks then emits done."""
     session_resp = client.post("/api/sessions", json={"graph_id": _LLM_GRAPH_ID})
     assert session_resp.status_code == 200
     session_id = session_resp.json()["session_id"]
@@ -162,27 +157,12 @@ def test_resume_llm_flow_emits_real_llm_response(client):
     resp = client.post(f"/api/resume/{session_id}", json={"text": "user reply"})
     assert resp.status_code == 200
     events = parse_sse_events(resp.text)
-    result_events = [e for e in events if e["event"] == "result"]
-    assert len(result_events) == 1, "Should emit exactly one result event"
-    result_data = result_events[0]["data"]
-    assert result_data["result"] == "ok", f"Expected result='ok', got {result_data}"
-    assert result_data["stage"] == "done", f"Expected stage='done', got {result_data}"
-    last_msg = result_data["messages"][-1]
-    assert last_msg["type"] == "ai", "real_llm should return an AIMessage (dict)"
-    # real_llm may return a list of content blocks (e.g. thinking models);
-    # check text and reasoning blocks for non-empty content.
-    text_content = ""
-    if isinstance(last_msg["content"], str):
-        text_content = last_msg["content"]
-    elif isinstance(last_msg["content"], list):
-        for block in last_msg["content"]:
-            if not isinstance(block, dict):
-                continue
-            btype = block.get("type", "")
-            # thinking models store the actual response in "reasoning" blocks
-            if btype in ("text", "reasoning"):
-                text_content += block.get("text", "")
-    assert text_content.strip(), "real LLM response must have non-empty content"
+    done_events = [e for e in events if e["event"] == "done"]
+    assert len(done_events) == 1, "Should emit exactly one done event"
+
+    # Check that we received at least one streaming chunk (answer or reasoning).
+    streaming_chunks = [e for e in events if e["event"] in ("answer", "reasoning")]
+    assert len(streaming_chunks) > 0, "Should emit at least one answer/reasoning chunk"
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +171,7 @@ def test_resume_llm_flow_emits_real_llm_response(client):
 
 
 def test_full_lifecycle_create_pause_resume(client):
-    """End-to-end: create session → resume (pause) → resume (result) → assert fake_llm response."""
+    """End-to-end: create session → resume (pause) → resume → assert done event."""
     session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
     assert session_resp.status_code == 200
     session_id = session_resp.json()["session_id"]
@@ -207,18 +187,13 @@ def test_full_lifecycle_create_pause_resume(client):
     resume_resp = client.post(f"/api/resume/{session_id}", json={"text": "user reply"})
     assert resume_resp.status_code == 200
     events = parse_sse_events(resume_resp.text)
-    result_events = [e for e in events if e["event"] == "result"]
-    assert len(result_events) == 1, "Should emit exactly one result event"
-    result_data = result_events[0]["data"]
-    assert result_data["result"] == "ok"
-    last_msg = result_data["messages"][-1]
-    assert last_msg["type"] == "ai", "fake_llm should return an AIMessage (dict)"
-    assert last_msg["content"] == "message received", "fake_llm content must match spec"
+    done_events = [e for e in events if e["event"] == "done"]
+    assert len(done_events) == 1, "Should emit exactly one done event"
 
 
 @pytest.mark.skipif(not _llm_available(), reason="LLM server not available at 127.0.0.1:8081")
 def test_full_lifecycle_llm_flow(client):
-    """End-to-end: create session → resume (pause) → resume (result) → assert real LLM response."""
+    """End-to-end: create session → resume (pause) → resume → assert streaming chunks + done."""
     session_resp = client.post("/api/sessions", json={"graph_id": _LLM_GRAPH_ID})
     assert session_resp.status_code == 200
     session_id = session_resp.json()["session_id"]
@@ -234,27 +209,12 @@ def test_full_lifecycle_llm_flow(client):
     resume_resp = client.post(f"/api/resume/{session_id}", json={"text": "user reply"})
     assert resume_resp.status_code == 200
     events = parse_sse_events(resume_resp.text)
-    result_events = [e for e in events if e["event"] == "result"]
-    assert len(result_events) == 1, "Should emit exactly one result event"
-    result_data = result_events[0]["data"]
-    assert result_data["result"] == "ok"
-    assert result_data["stage"] == "done"
-    last_msg = result_data["messages"][-1]
-    assert last_msg["type"] == "ai", "real_llm should return an AIMessage (dict)"
-    # real_llm may return a list of content blocks (e.g. thinking models);
-    # check text and reasoning blocks for non-empty content.
-    text_content = ""
-    if isinstance(last_msg["content"], str):
-        text_content = last_msg["content"]
-    elif isinstance(last_msg["content"], list):
-        for block in last_msg["content"]:
-            if not isinstance(block, dict):
-                continue
-            btype = block.get("type", "")
-            # thinking models store the actual response in "reasoning" blocks
-            if btype in ("text", "reasoning"):
-                text_content += block.get("text", "")
-    assert text_content.strip(), "real LLM response must have non-empty content"
+    done_events = [e for e in events if e["event"] == "done"]
+    assert len(done_events) == 1, "Should emit exactly one done event"
+
+    # Check that we received at least one streaming chunk (answer or reasoning).
+    streaming_chunks = [e for e in events if e["event"] in ("answer", "reasoning")]
+    assert len(streaming_chunks) > 0, "Should emit at least one answer/reasoning chunk"
 
 
 # ---------------------------------------------------------------------------

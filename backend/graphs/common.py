@@ -7,7 +7,7 @@ instead of duplicating the definitions.
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing_extensions import TypedDict
 
 from langchain.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -28,6 +28,6 @@ def pause_node(state: FlowState) -> dict:
 
     On resume the graph continues past this node without re-interrupting.
     """
-    if state["stage"] == "dialog":
+    if state.get("stage", "dialog") == "dialog":
         interrupt({"reason": "waiting_for_user_input"})
     return {"messages": [], "result": "", "stage": "next"}

@@ -10,7 +10,7 @@ Covers:
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing_extensions import TypedDict
 
 import pytest
 from fastapi import FastAPI
@@ -33,7 +33,7 @@ class _MsgState(TypedDict):
 
 
 def _interrupt_node(state: _MsgState) -> dict:
-    if state["stage"] == "dialog":
+    if state.get("stage", "dialog") == "dialog":
         interrupt({"reason": "waiting"})
     return {"messages": [], "stage": "next"}
 
@@ -151,7 +151,7 @@ def test_post_resume_interrupt_signal(client):
 
 
 def test_integration_session_lifecycle(client):
-    """End-to-end flow: create session → resume (pause) → resume → result via API only."""
+    """End-to-end flow: create session → resume (pause) → resume → done via API only."""
     # 1. Create a session.
     session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
     assert session_resp.status_code == 200
@@ -168,8 +168,8 @@ def test_integration_session_lifecycle(client):
     resp = client.post(f"/api/resume/{session_id}", json={"text": "user reply"})
     assert resp.status_code == 200
     events = parse_sse_events(resp.text)
-    result_events = [e for e in events if e["event"] == "result"]
-    assert len(result_events) == 1, "Should emit exactly one result event"
+    done_events = [e for e in events if e["event"] == "done"]
+    assert len(done_events) == 1, "Should emit exactly one done event"
 
 
 # ---------------------------------------------------------------------------

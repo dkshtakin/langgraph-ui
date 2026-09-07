@@ -20,6 +20,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from langgraph.types import Command
 from pydantic import BaseModel
 
 
@@ -91,9 +92,10 @@ def create_router() -> APIRouter:
         """Send a user message into *session_id* and stream the graph response via SSE.
 
         The endpoint wraps *body.text* in a ``HumanMessage``, adds it to the
-        graph state, then starts or resumes execution.  If the graph pauses at
-        an interrupt an ``interrupt`` event is emitted; otherwise a ``result``
-        event carries the final output.
+        graph state, then starts or resumes execution using
+        ``astream_events(version="v3")``.  If the graph pauses at an interrupt
+        an ``interrupt`` event is emitted; otherwise a ``done`` event signals
+        completion after streaming any ``answer``/``reasoning`` chunks.
 
         Parameters
         ----------
@@ -103,7 +105,6 @@ def create_router() -> APIRouter:
             A single user message string (wrapped internally as HumanMessage).
         """
         from langchain_core.messages import HumanMessage
-        from langgraph.types import Command
 
         from backend.session_manager import SessionManager
 
@@ -119,43 +120,94 @@ def create_router() -> APIRouter:
 
         async def event_iterator() -> AsyncIterator[bytes]:
             try:
-                # Determine whether this is a fresh invocation or a resume after
-                # an interrupt by checking if the thread already has checkpoint
-                # history.  A thread with history is either mid-interrupt (resume)
-                # or post-completion (fresh logical run — still use Command).
+                from backend.streaming_parser import flush_buffer, parse_reasoning
+
                 history = list(graph.checkpointer.list(config))
 
                 if history:
-                    result = graph.invoke(
-                        Command(resume=body.text, update={"messages": [human_msg]}),
-                        config=config,
+                    input_val = Command(
+                        resume=body.text, update={"messages": [human_msg]}
                     )
                 else:
-                    # First invocation — start the graph with initial state.
-                    result = graph.invoke(
-                        {"messages": [human_msg], "stage": "dialog"},
-                        config=config,
+                    # Fresh session — the graph self-initialises state via its
+                    # TypedDict; user message is carried only through
+                    # Command(resume=...) on resume.
+                    input_val = {}
+
+                run = await graph.astream_events(
+                    input_val, version="v3", config=config
+                )
+                try:
+                    output_buffer = ""
+                    in_reasoning = False
+
+                    async for event in run:
+                        channel = event.get("method", "")
+                        if channel != "messages":
+                            continue
+
+                        params = event.get("params", {})
+                        data_list = params.get("data", [])
+                        if not data_list:
+                            continue
+
+                        msg_data = data_list[0]
+                        if not isinstance(msg_data, dict):
+                            continue
+
+                        if msg_data.get("event") == "content-block-delta":
+                            delta = msg_data.get("delta", {}) or {}
+                            if delta.get("type") == "text-delta":
+                                text = delta.get("text", "")
+                                (
+                                    output_buffer,
+                                    in_reasoning,
+                                    new_chunks,
+                                ) = parse_reasoning(
+                                    text, output_buffer, in_reasoning
+                                )
+                                for chunk in new_chunks:
+                                    yield _format_sse(
+                                        {"event": chunk["type"], "data": {"content": chunk["content"]}}
+                                    ) + "\n\n"
+
+                        elif msg_data.get("event") == "content-block-finish":
+                            (
+                                output_buffer,
+                                in_reasoning,
+                                flushed,
+                            ) = flush_buffer(output_buffer, in_reasoning)
+                            for chunk in flushed:
+                                yield _format_sse(
+                                    {"event": chunk["type"], "data": {"content": chunk["content"]}}
+                                ) + "\n\n"
+
+                    # Flush any remaining buffered text — mirrors the final flush
+                    # in sse_streaming.py before yielding the end marker.
+                    output_buffer, in_reasoning, final_flushed = flush_buffer(
+                        output_buffer, in_reasoning
                     )
+                    for chunk in final_flushed:
+                        yield _format_sse(
+                            {"event": chunk["type"], "data": {"content": chunk["content"]}}
+                        ) + "\n\n"
 
-                # If the graph paused, yield an interrupt event and stop.
-                if "__interrupt__" in result:
-                    yield _format_sse(
-                        {
-                            "event": "interrupt",
-                            "data": {"reason": result["__interrupt__"][0].value},
-                        }
-                    ) + "\n\n"
-                    return
-
-                # Otherwise stream the final result as JSON.
-                # Convert LangChain messages to dicts for JSON serialization.
-                serializable_result = {
-                    k: _serialize_messages(v) if k == "messages" else v
-                    for k, v in result.items()
-                }
-                yield _format_sse(
-                    {"event": "result", "data": serializable_result}
-                ) + "\n\n"
+                finally:
+                    was_interrupted = await run.interrupted()
+                    if was_interrupted:
+                        interrupts_list = await run.interrupts()
+                        if interrupts_list:
+                            interrupt_value = (
+                                interrupts_list[0].value if hasattr(interrupts_list[0], "value") else interrupts_list[0]
+                            ) or {}
+                            reason = interrupt_value.get("reason", "unknown") if isinstance(interrupt_value, dict) else str(interrupt_value)
+                        else:
+                            reason = "unknown"
+                        yield _format_sse(
+                            {"event": "interrupt", "data": {"reason": reason}}
+                        ) + "\n\n"
+                    else:
+                        yield _format_sse({"event": "done", "data": {}}) + "\n\n"
             except Exception as exc:
                 yield _format_sse(
                     {"event": "error", "data": {"detail": str(exc)}}
@@ -225,24 +277,6 @@ def create_router() -> APIRouter:
 
 
 # ── SSE helpers ──────────────────────────────────────────────────────────
-
-
-def _serialize_messages(value: Any) -> Any:
-    """Convert LangChain message objects to JSON-serializable dicts."""
-    from langchain_core.messages import AIMessage, HumanMessage, MessageLikeRepresentation
-
-    if isinstance(value, list):
-        return [_serialize_single_message(m) for m in value]
-    return value
-
-
-def _serialize_single_message(msg: MessageLikeRepresentation) -> dict:
-    """Serialize a single LangChain message to a plain dict."""
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    if isinstance(msg, (HumanMessage, AIMessage)):
-        return msg.model_dump()
-    return msg
 
 
 def _format_sse(data: dict[str, Any]) -> str:
