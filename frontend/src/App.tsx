@@ -139,7 +139,7 @@ export default function App() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
-              ? { ...m, text: `⚠️ Ошибка: ${detail}`.slice(0, 500), reasoning: '' }
+              ? { ...m, text: `⚠️ Ошибка:\n${detail}`, reasoning: '' }
               : m,
           ),
         )

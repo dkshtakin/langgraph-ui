@@ -122,22 +122,10 @@ export function streamResume(
                 continue
               }
 
-              // Terminal events carry their payload in the same "data:" line
+              // Terminal events are emitted as "event: X" followed by "data: {...}"
+              // on separate lines; stash the type and wait for the data line.
               if (parsed.event === 'interrupt' || parsed.event === 'done' || parsed.event === 'error') {
-                const detail = (parsed.data as any)?.detail as string | undefined
-                const reason = (parsed.data as any)?.reason as string || 'unknown'
-
-                if (parsed.event === 'interrupt') {
-                  console.log('[sseClient] interrupt:', reason)
-                  callbacks.onInterrupt?.(reason)
-                } else if (parsed.event === 'done') {
-                  console.log('[sseClient] done')
-                  callbacks.onDone?.()
-                } else {
-                  console.log('[sseClient] error event received, detail:', detail?.slice(0, 800))
-                  callbacks.onError?.(detail ?? 'Generation failed — see console for details')
-                }
-                pendingEventType = null
+                pendingEventType = parsed.event
                 continue
               }
 
@@ -146,14 +134,29 @@ export function streamResume(
                 continue
               }
 
-              // "data:" line completing a pending answer/reasoning event
+              // "data:" line completing a pending answer/reasoning/error/interrupt/done event
               if (parsed.event === 'data' && pendingEventType !== null) {
-                const content = (parsed.data as any)?.content as string | undefined
-                if (content !== undefined) {
-                  console.log('[sseClient] chunk:', pendingEventType, content.slice(0, 50))
-                  callbacks.onChunk?.(pendingEventType, content)
-                }
+                const eventType = pendingEventType
                 pendingEventType = null
+
+                if (eventType === 'answer' || eventType === 'reasoning') {
+                  const content = (parsed.data as any)?.content as string | undefined
+                  if (content !== undefined) {
+                    console.log('[sseClient] chunk:', eventType, content.slice(0, 50))
+                    callbacks.onChunk?.(eventType, content)
+                  }
+                } else if (eventType === 'interrupt') {
+                  const reason = (parsed.data as any)?.reason as string || 'unknown'
+                  console.log('[sseClient] interrupt:', reason)
+                  callbacks.onInterrupt?.(reason)
+                } else if (eventType === 'done') {
+                  console.log('[sseClient] done')
+                  callbacks.onDone?.()
+                } else if (eventType === 'error') {
+                  const detail = (parsed.data as any)?.detail as string | undefined
+                  console.log('[sseClient] error event received, detail:', detail?.slice(0, 800))
+                  callbacks.onError?.(detail ?? 'Generation failed — see console for details')
+                }
               }
             } catch (cbErr) {
               console.error('[sseClient] callback threw:', cbErr)

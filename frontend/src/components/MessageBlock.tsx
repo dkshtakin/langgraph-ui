@@ -13,6 +13,8 @@ export default function MessageBlock({ role, text, reasoning }: MessageBlockProp
     )
   }
 
+  const isError = text.startsWith('⚠️ Ошибка:')
+
   return (
     <div className="msg-assistant">
       {reasoning && (
@@ -21,7 +23,12 @@ export default function MessageBlock({ role, text, reasoning }: MessageBlockProp
           <div className="reasoning-content" dangerouslySetInnerHTML={{ __html: formatMarkdown(reasoning) }} />
         </details>
       )}
-      {text && <div className="msg-bubble answer-bubble" dangerouslySetInnerHTML={{ __html: formatMarkdown(text) }} />}
+      {text && (
+        <div
+          className={`msg-bubble ${isError ? 'error-bubble' : 'answer-bubble'}`}
+          dangerouslySetInnerHTML={{ __html: formatMarkdown(text) }}
+        />
+      )}
     </div>
   )
 }
