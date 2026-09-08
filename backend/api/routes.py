@@ -37,7 +37,7 @@ class CreateSessionRequest(BaseModel):
 class ResumeRequest(BaseModel):
     """Request body for POST /api/resume/{session_id}."""
 
-    text: str
+    text: str = ""
 
 
 def create_router() -> APIRouter:
@@ -119,7 +119,6 @@ def create_router() -> APIRouter:
 
         thread_id = session["thread_id"]
         graph = session["graph"]
-        human_msg = HumanMessage(content=body.text)
         config = {"configurable": {"thread_id": thread_id}}
 
         async def event_iterator() -> AsyncIterator[bytes]:
@@ -128,14 +127,15 @@ def create_router() -> APIRouter:
             try:
                 history = list(graph.checkpointer.list(config))
 
-                if history:
+                if body.text and history:
+                    human_msg = HumanMessage(content=body.text)
                     input_val = Command(
                         resume=body.text, update={"messages": [human_msg]}
                     )
                 else:
-                    # Fresh session — the graph self-initialises state via its
-                    # TypedDict; user message is carried only through
-                    # Command(resume=...) on resume.
+                    # Fresh session or init-only call — the graph
+                    # self-initialises state via its TypedDict; no user
+                    # message is injected.
                     input_val = {}
 
                 run = await graph.astream_events(

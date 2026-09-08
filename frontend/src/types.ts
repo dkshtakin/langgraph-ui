@@ -1,1 +1,1 @@
-export type StreamState = 'idle' | 'streaming' | 'interrupted' | 'done'
+export type StreamState = 'idle' | 'initializing' | 'streaming' | 'interrupted' | 'done'

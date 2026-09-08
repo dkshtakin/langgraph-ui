@@ -3,7 +3,7 @@
  *
  * Emits typed events from the backend's SSE stream:
  *   - answer      — text chunk belonging to the model's final answer
- *   - reasoning   — text chunk inside a <|channel>thought…<channel|> block
+ *   - reasoning   — text chunk inside a end_reasoning_tag...end_reasoning_tag block
  *   - interrupt   — graph paused, awaiting user input  (data.reason)
  *   - done        — graph finished normally             (data: {})
  *   - error       — server-side error                   (data.detail)

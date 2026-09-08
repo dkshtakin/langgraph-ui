@@ -12,7 +12,12 @@ Public API:
 
 from __future__ import annotations
 
+import inspect
+import logging
+import pathlib
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 # Declare every graph module here — __init__.py compiles them all at startup.
 _GRAPH_MODULES = [
@@ -20,6 +25,32 @@ _GRAPH_MODULES = [
     "backend.graphs.test_flow",
     "backend.graphs.llm_flow",
 ]
+
+
+def _generate_mermaid_png(compiled: Any, mod) -> None:
+    """Generate a Mermaid PNG visualization of *compiled* graph.
+
+    The image is saved next to the source module as ``<graph_id>.mermaid.png``.
+    Errors are logged but never raised — graph compilation must not fail.
+    """
+    graph_id = getattr(mod, "id", None)
+    if graph_id is None:
+        return
+
+    try:
+        source_file = inspect.getfile(mod)
+    except (TypeError, OSError):
+        logger.warning("Cannot determine source file for module %r; skipping PNG generation.", mod.__name__)
+        return
+
+    output_path = pathlib.Path(source_file).parent / f"{graph_id}.mermaid.png"
+
+    try:
+        graph = compiled.get_graph(xray=True)
+        graph.draw_mermaid_png(output_file_path=str(output_path))
+        logger.info("Generated mermaid PNG for %s → %s", graph_id, output_path)
+    except Exception as exc:
+        logger.warning("Failed to generate mermaid PNG for %s: %s", graph_id, exc)
 
 
 def _compile_registry(modules: list[str]) -> tuple[Dict[str, Any], Dict[str, str]]:
@@ -45,6 +76,7 @@ def _compile_registry(modules: list[str]) -> tuple[Dict[str, Any], Dict[str, str
             )
 
         compiled = graph_build()
+        _generate_mermaid_png(compiled, mod)
         registry[graph_id] = compiled
         if graph_name is not None:
             names[graph_id] = graph_name

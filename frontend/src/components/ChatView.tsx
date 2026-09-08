@@ -23,7 +23,7 @@ export default function ChatView({ messages, streamingText, reasoningText, strea
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText, reasoningText])
 
-  const hasLiveStream = streamState === 'streaming' || streamState === 'interrupted'
+  const hasLiveStream = streamState === 'streaming' || streamState === 'interrupted' || streamState === 'initializing'
 
   return (
     <div className="chat-view">
@@ -35,14 +35,14 @@ export default function ChatView({ messages, streamingText, reasoningText, strea
         {/* Live streaming assistant message */}
         {(hasLiveStream && (streamingText || reasoningText)) && (
           <div className="msg-assistant live-stream">
-            {streamingText && (
-              <div className="msg-bubble answer-bubble" dangerouslySetInnerHTML={{ __html: formatMarkdown(streamingText) }} />
-            )}
             {reasoningText && (
-              <details className="reasoning-block" open={false}>
+              <details className="reasoning-block" open={true}>
                 <summary className="reasoning-summary">Reasoning</summary>
                 <div className="reasoning-content" dangerouslySetInnerHTML={{ __html: formatMarkdown(reasoningText) }} />
               </details>
+            )}
+            {streamingText && (
+              <div className="msg-bubble answer-bubble" dangerouslySetInnerHTML={{ __html: formatMarkdown(streamingText) }} />
             )}
           </div>
         )}

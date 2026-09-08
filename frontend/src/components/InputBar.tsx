@@ -31,13 +31,14 @@ export default function InputBar({ streamState, onSend, onNewChat }: InputBarPro
     }
   }
 
+  const isInitializing = streamState === 'initializing'
   const isStreaming = streamState === 'streaming'
   const isInterrupted = streamState === 'interrupted'
   const isDone = streamState === 'done'
 
   let placeholder = 'Введите сообщение…'
   if (isInterrupted) placeholder = 'Введите ваш ответ…'
-  else if (isStreaming) placeholder = 'Ответ генерируется…'
+  else if (isStreaming || isInitializing) placeholder = 'Запуск графа…'
 
   return (
     <div className="input-bar">
@@ -54,13 +55,13 @@ export default function InputBar({ streamState, onSend, onNewChat }: InputBarPro
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          disabled={isStreaming}
+          disabled={isStreaming || isInitializing}
           className="chat-input"
         />
         <button
           className="send-btn"
           onClick={handleSubmit}
-          disabled={isStreaming || !inputValue.trim()}
+          disabled={isStreaming || isInitializing || !inputValue.trim()}
           title="Send"
         >
           Send

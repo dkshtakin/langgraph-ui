@@ -44,11 +44,10 @@ def _feed_chunks(buf: str, chunks: list[str]):
 
 def test_partial_start_tag_split():
     """When the start tag is split across two chunks, no chunk should be emitted until it completes."""
-    # Split "<|channel>thought" at position 4:
-    #   "<|ch" + "annel>thought"
+    # Split start_reasoning_tag at position 4:
     buf = ""
-    buf, in_r, emitted = parse_reasoning("<|ch", buf, False)
-    buf, in_r, new2 = parse_reasoning("annel>thought", buf, in_r)
+    buf, in_r, emitted = parse_reasoning(start_reasoning_tag[:4], buf, False)
+    buf, in_r, new2 = parse_reasoning(start_reasoning_tag[4:], buf, in_r)
     emitted.extend(new2)
 
     assert len(emitted) == 0, "No output before complete tag is seen"
@@ -63,7 +62,7 @@ def test_text_before_partial_tag():
     """Safe prefix (text before partial tag) must be emitted; partial stays in buffer."""
     # First chunk: A + partial start tag
     buf = ""
-    buf, in_r, emitted = _feed_chunks(buf, ["A<|ch"])
+    buf, in_r, emitted = _feed_chunks(buf, [f"A{start_reasoning_tag[:4]}"])
 
     # "A<|ch" is 5 chars, less than N-1=16, so nothing emitted yet.
     assert len(emitted) == 0
@@ -72,7 +71,7 @@ def test_text_before_partial_tag():
     # Second chunk: complete remaining start tag + reasoning text + end tag + answer text
     buf, in_r, emitted2 = _feed_chunks(
         buf,
-        ["annel>thoughtThis is reasoning<channel|>Answer text"]
+        [f"{start_reasoning_tag[4:]}This is reasoning{end_reasoning_tag}Answer text"]
     )
     buf, in_r, emitted3 = flush_buffer(buf, in_r)
 
@@ -101,14 +100,11 @@ def test_text_before_partial_tag():
 
 def test_end_tag_split_three_chunks():
     """End tag split across three chunks must not leak partials when seen outside reasoning."""
-    # Split "<channel|>" at positions 4 and 8:
-    #   "<chan" + "nel|" + ">"
+    # Split end_reasoning_tag at position 4
     buf = ""
-    buf, in_r, emitted = parse_reasoning("<chan", buf, False)
-    buf, in_r, new2 = parse_reasoning("nel|", buf, in_r)
-    buf, in_r, new3 = parse_reasoning(">", buf, in_r)
+    buf, in_r, emitted = parse_reasoning(end_reasoning_tag[:4], buf, False)
+    buf, in_r, new2 = parse_reasoning(end_reasoning_tag[4:], buf, in_r)
     emitted.extend(new2)
-    emitted.extend(new3)
 
     assert len(emitted) == 0, "No chunk should be emitted for orphan end tag fragments"
     assert in_r is False, "End tag outside reasoning mode must not enter reasoning"
@@ -163,7 +159,8 @@ def test_long_text_no_tags():
 
 def test_long_text_no_tags_single_chunk():
     """Short text with no tags should be emitted on flush."""
-    short_text = "Hello, world!"
+    short_text = "Hello!"
+    assert len(short_text) < N
 
     buf, in_r, emitted = _feed_chunks("", [short_text])
 
@@ -187,7 +184,7 @@ def test_character_by_character():
     bulk emits fewer larger chunks. The combined content of each type must match.
     """
     full_text = (
-        "prefix<|channel>thoughtReasoning content<channel|>suffix"
+        f"prefix{start_reasoning_tag}Reasoning content{end_reasoning_tag}suffix"
     )
 
     buf, in_r, emitted_char_by_char = _feed_chunks("", list(full_text))
@@ -231,7 +228,7 @@ def test_flush_in_reasoning_no_end_tag():
 
 def test_flush_in_reasoning_with_end_tag():
     """Flush while in reasoning with end tag — emit up to tag as reasoning, rest as answer."""
-    buf, _, flushed = flush_buffer("reasoning<channel|>answer tail", True)
+    buf, _, flushed = flush_buffer(f"reasoning{end_reasoning_tag}answer tail", True)
     assert len(flushed) == 2
     assert flushed[0]["type"] == "reasoning"
     assert flushed[0]["content"] == "reasoning"
@@ -256,19 +253,19 @@ def test_consecutive_reasoning_blocks():
     emitted: list[dict] = []
 
     # Chunk 1: finds start tag, enters reasoning
-    buf, in_r, new = parse_reasoning("before<|channel>thoughtreasoning1", buf, in_r)
+    buf, in_r, new = parse_reasoning(f"before{start_reasoning_tag}reasoning1", buf, in_r)
     emitted.extend(new)
 
     # Chunk 2: finds end tag, exits reasoning; buffer carries "middle"
-    buf, in_r, new = parse_reasoning("<channel|>middle", buf, in_r)
+    buf, in_r, new = parse_reasoning(f"{end_reasoning_tag}middle", buf, in_r)
     emitted.extend(new)
 
     # Chunk 3: finds second start tag, enters reasoning again
-    buf, in_r, new = parse_reasoning("<|channel>thoughtreasoning2", buf, in_r)
+    buf, in_r, new = parse_reasoning(f"{start_reasoning_tag}reasoning2", buf, in_r)
     emitted.extend(new)
 
     # Chunk 4: finds second end tag, exits reasoning; "after" stays in buffer
-    buf, in_r, new = parse_reasoning("<channel|>after", buf, in_r)
+    buf, in_r, new = parse_reasoning(f"{end_reasoning_tag}after", buf, in_r)
     emitted.extend(new)
 
     # Flush to emit trailing "after" as answer

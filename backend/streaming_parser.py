@@ -36,8 +36,10 @@ This pattern is implemented in ``streaming.py`` (reference impl) and
 
 from __future__ import annotations
 
-start_reasoning_tag: str = "<|channel>thought"  # 17 chars
-end_reasoning_tag: str = "<channel|>"  # 10 chars
+# start_reasoning_tag: str = "<|channel>thought"  # 17 chars
+start_reasoning_tag: str = "<think>"
+# end_reasoning_tag: str = "<channel|>"  # 10 chars
+end_reasoning_tag: str = "</think>"
 N: int = len(start_reasoning_tag)  # noqa: N806 — tag length
 K: int = len(end_reasoning_tag)
 

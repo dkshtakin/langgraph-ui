@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { flushSync } from 'react-dom'
 import ChatView from './components/ChatView'
 import InputBar from './components/InputBar'
 import { createSession, type Session } from './api/client'
@@ -30,7 +31,51 @@ export default function App() {
     setLiveStream(null)
     const s = await createSession('book_planner')
     setSession(s)
-  }, [])
+
+    // Kick off the graph immediately — fresh sessions have no history, so
+    // passing an empty text lets the graph self-initialise and then pause at
+    // its first interrupt (or finish if there is no user-input branch).
+    const initId = `assistant-init-${nextId}`
+    setNextId((n) => n + 1)
+
+    let initState: StreamState = 'initializing'
+    let initText = ''
+    let initReasoning = ''
+    setLiveStream({ sessionId: s.session_id, assistantMsgId: initId, text: '', reasoning: '', state: initState })
+
+    const controller = streamResume(s.session_id, '', {
+      onChunk: (type, content) => {
+        if (type === 'answer') {
+          initText += content
+        } else {
+          initReasoning += content
+        }
+        flushSync(() =>
+          setLiveStream((prev) =>
+            prev ? { ...prev, text: initText, reasoning: initReasoning } : prev,
+          ),
+        )
+      },
+      onInterrupt: () => {
+        // Persist the initialization output as a message so it stays visible.
+        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning }])
+        setLiveStream(null)
+      },
+      onDone: () => {
+        // Persist the initialization output as a message so it stays visible.
+        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning }])
+        setLiveStream(null)
+      },
+      onError: (detail) => {
+        console.error('[App] init stream error:', detail)
+        setLiveStream(null)
+      },
+      onComplete: () => {
+        abortRef.current = null
+      },
+    })
+    abortRef.current = controller
+  }, [nextId])
 
   const handleSend = useCallback((message: string) => {
     if (!session) return
@@ -59,7 +104,9 @@ export default function App() {
         } else {
           accumulatedReasoning += content
         }
-        setLiveStream({ sessionId: session.session_id, assistantMsgId, text: accumulatedText, reasoning: accumulatedReasoning, state })
+        flushSync(() =>
+          setLiveStream({ sessionId: session.session_id, assistantMsgId, text: accumulatedText, reasoning: accumulatedReasoning, state }),
+        )
       },
       onInterrupt: () => {
         state = 'interrupted'

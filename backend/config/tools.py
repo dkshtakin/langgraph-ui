@@ -30,4 +30,4 @@ def today_tool() -> str:
     return date.today().isoformat()
 
 
-TOOLS = [end_dialog]
+TOOLS = [end_dialog, today_tool]

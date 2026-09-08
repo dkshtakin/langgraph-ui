@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 interface MessageBlockProps {
   role: 'user' | 'assistant'
   text: string
@@ -7,8 +5,6 @@ interface MessageBlockProps {
 }
 
 export default function MessageBlock({ role, text, reasoning }: MessageBlockProps) {
-  const [reasoningOpen, setReasoningOpen] = useState(false)
-
   if (role === 'user') {
     return (
       <div className="msg-user">
@@ -19,13 +15,13 @@ export default function MessageBlock({ role, text, reasoning }: MessageBlockProp
 
   return (
     <div className="msg-assistant">
-      {text && <div className="msg-bubble answer-bubble" dangerouslySetInnerHTML={{ __html: formatMarkdown(text) }} />}
       {reasoning && (
-        <details className="reasoning-block" open={false}>
+        <details className="reasoning-block" open={true}>
           <summary className="reasoning-summary">Reasoning</summary>
           <div className="reasoning-content" dangerouslySetInnerHTML={{ __html: formatMarkdown(reasoning) }} />
         </details>
       )}
+      {text && <div className="msg-bubble answer-bubble" dangerouslySetInnerHTML={{ __html: formatMarkdown(text) }} />}
     </div>
   )
 }
