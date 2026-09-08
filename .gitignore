@@ -6,3 +6,4 @@ todo.md
 .scratch
 __pycache__
 .pytest_cache
+frontend/dist/

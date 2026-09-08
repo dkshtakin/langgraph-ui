@@ -1,10 +1,14 @@
+import { ToolCallList } from './ToolCallBlock'
+import type { ToolCallEvent } from '../types'
+
 interface MessageBlockProps {
   role: 'user' | 'assistant'
   text: string
   reasoning?: string
+  toolCalls?: ToolCallEvent[]
 }
 
-export default function MessageBlock({ role, text, reasoning }: MessageBlockProps) {
+export default function MessageBlock({ role, text, reasoning, toolCalls }: MessageBlockProps) {
   if (role === 'user') {
     return (
       <div className="msg-user">
@@ -22,6 +26,9 @@ export default function MessageBlock({ role, text, reasoning }: MessageBlockProp
           <summary className="reasoning-summary">Reasoning</summary>
           <div className="reasoning-content" dangerouslySetInnerHTML={{ __html: formatMarkdown(reasoning) }} />
         </details>
+      )}
+      {toolCalls && toolCalls.length > 0 && (
+        <ToolCallList calls={toolCalls} />
       )}
       {text && (
         <div

@@ -22,6 +22,7 @@ from tests._sse_helpers import parse_sse_events
 
 _TEST_GRAPH_ID = "test_flow"
 _LLM_GRAPH_ID = "llm_flow"
+_TOOL_CALL_GRAPH_ID = "tool_call_flow"
 
 
 @pytest.fixture(scope="module")
@@ -259,6 +260,77 @@ def test_delete_llm_flow_session_after_resume(client):
     client.post(f"/api/resume/{session_id}", json={"text": "reply"})
 
     # Delete via API.
+    delete_resp = client.delete(f"/api/sessions/{session_id}")
+    assert delete_resp.status_code == 200
+    assert delete_resp.json()["deleted"] is True
+
+    from backend.session_manager import SessionManager
+
+    mgr = SessionManager()
+    assert mgr.get_session(session_id) is None
+
+
+# ---------------------------------------------------------------------------
+# tool_call_flow — real LLM + ToolNode → emits tool_call SSE event
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _llm_available(), reason="LLM server not available at 127.0.0.1:8081")
+def test_tool_call_flow_session(client):
+    """POST /api/sessions for tool_call_flow returns session_id, thread_id, graph_id, graph_name."""
+    resp = client.post("/api/sessions", json={"graph_id": _TOOL_CALL_GRAPH_ID})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["graph_id"] == _TOOL_CALL_GRAPH_ID
+    assert data["graph_name"] == "Tool Call Flow"
+    assert data["session_id"]
+    assert data["thread_id"]
+
+
+@pytest.mark.skipif(not _llm_available(), reason="LLM server not available at 127.0.0.1:8081")
+def test_tool_call_flow_emits_tool_call_event(client):
+    """tool_call_flow emits a tool_call SSE event when the LLM calls today_tool."""
+    session_resp = client.post("/api/sessions", json={"graph_id": _TOOL_CALL_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+
+    resp = client.post(f"/api/resume/{session_id}", json={"text": ""})
+    assert resp.status_code == 200
+
+    events = parse_sse_events(resp.text)
+    # Both valid ("tool_call") and invalid ("invalid_tool_call") calls are emitted as distinct SSE events.
+    call_events = [e for e in events if e["event"] in ("tool_call", "invalid_tool_call")]
+    assert len(call_events) >= 1, "Should emit at least one tool_call or invalid_tool_call event"
+
+    # At least one of the calls must be today_tool (the graph's real tool).
+    names = {e["data"]["name"] for e in call_events}
+    assert "today_tool" in names, f"Expected 'today_tool' among {names}"
+
+
+@pytest.mark.skipif(not _llm_available(), reason="LLM server not available at 127.0.0.1:8081")
+def test_tool_call_flow_emits_done_event(client):
+    """tool_call_flow emits a done SSE event after completing."""
+    session_resp = client.post("/api/sessions", json={"graph_id": _TOOL_CALL_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+
+    resp = client.post(f"/api/resume/{session_id}", json={"text": ""})
+    assert resp.status_code == 200
+
+    events = parse_sse_events(resp.text)
+    done_events = [e for e in events if e["event"] == "done"]
+    assert len(done_events) >= 1, "Should emit at least one done event"
+
+
+@pytest.mark.skipif(not _llm_available(), reason="LLM server not available at 127.0.0.1:8081")
+def test_delete_tool_call_flow_session(client):
+    """Deleting a tool_call_flow session removes its checkpoint data."""
+    session_resp = client.post("/api/sessions", json={"graph_id": _TOOL_CALL_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+
+    client.post(f"/api/resume/{session_id}", json={"text": ""})
+
     delete_resp = client.delete(f"/api/sessions/{session_id}")
     assert delete_resp.status_code == 200
     assert delete_resp.json()["deleted"] is True

@@ -24,6 +24,7 @@ _GRAPH_MODULES = [
     "backend.graphs.book_planner",
     "backend.graphs.test_flow",
     "backend.graphs.llm_flow",
+    "backend.graphs.tool_call_flow",
 ]
 
 

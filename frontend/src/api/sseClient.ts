@@ -9,7 +9,7 @@
  *   - error       — server-side error                   (data.detail)
  */
 
-export type SseEventType = 'answer' | 'reasoning' | 'interrupt' | 'done' | 'error'
+export type SseEventType = 'answer' | 'reasoning' | 'interrupt' | 'done' | 'error' | 'tool_call' | 'invalid_tool_call'
 
 interface SseEvent {
   event: SseEventType | 'data'
@@ -22,6 +22,8 @@ export interface SseCallbacks {
   onDone?: () => void
   onError?: (detail: string) => void
   onComplete?: () => void   // fires after done or error, stream is closed
+  /** Emitted when the LLM invokes a tool. `invalid=true` means the call was rejected by the server. */
+  onToolCall?: (call: { name: string; args: Record<string, unknown>; invalid: boolean }) => void
 }
 
 function parseSseLine(line: string): SseEvent | null {
@@ -84,7 +86,7 @@ export function streamResume(
       let buffer = ''
       // SSE sends "event:" and "data:" on separate lines; track the current
       // event type so the following data line is merged into the same message.
-      let pendingEventType: 'answer' | 'reasoning' | null = null
+      let pendingEventType: 'answer' | 'reasoning' | 'interrupt' | 'done' | 'error' | 'tool_call' | 'invalid_tool_call' | null = null
 
       try {
         // eslint-disable-next-line no-constant-condition
@@ -116,8 +118,8 @@ export function streamResume(
             if (!parsed) continue
 
             try {
-              // "event: answer/reasoning" — stash type and wait for the data line
-              if (parsed.event === 'answer' || parsed.event === 'reasoning') {
+              // "event: answer/reasoning/tool_call/invalid_tool_call" — stash type and wait for the data line
+              if (parsed.event === 'answer' || parsed.event === 'reasoning' || parsed.event === 'tool_call' || parsed.event === 'invalid_tool_call') {
                 pendingEventType = parsed.event
                 continue
               }
@@ -144,6 +146,13 @@ export function streamResume(
                   if (content !== undefined) {
                     console.log('[sseClient] chunk:', eventType, content.slice(0, 50))
                     callbacks.onChunk?.(eventType, content)
+                  }
+                } else if (eventType === 'tool_call' || eventType === 'invalid_tool_call') {
+                  const name = (parsed.data as any)?.name as string | undefined
+                  const args = (parsed.data as any)?.args as Record<string, unknown> ?? {}
+                  if (name) {
+                    console.log('[sseClient] tool_call:', eventType, name)
+                    callbacks.onToolCall?.({ name, args, invalid: eventType === 'invalid_tool_call' })
                   }
                 } else if (eventType === 'interrupt') {
                   const reason = (parsed.data as any)?.reason as string || 'unknown'

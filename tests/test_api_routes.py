@@ -199,6 +199,70 @@ def test_delete_session_succeeds(client):
     assert mgr.get_session(session_id) is None
 
 
+def test_resume_emits_tool_call_event(client, monkeypatch):
+    """POST /api/resume emits a tool_call SSE event when the graph produces one."""
+    session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+
+    # Fake async event stream that yields a content-block-finish with tool_call.
+    # Must return a coroutine (not an async generator) so `await graph.astream_events()` works.
+    async def _make_fake_iter(events):
+        class FakeAsyncIter:
+            def __aiter__(self):
+                return self
+            async def __anext__(self):
+                raise StopAsyncIteration
+        for evt in events:
+            yield evt
+        raise StopAsyncIteration
+
+    async def fake_astream_events(*args, **kwargs):
+        events = [
+            {
+                "method": "messages",
+                "params": {
+                    "data": [
+                        {
+                            "event": "content-block-finish",
+                            "content": {
+                                "type": "tool_call",
+                                "name": "today_tool",
+                                "args": {"date": "2026-09-08"},
+                            },
+                        }
+                    ]
+                },
+            },
+        ]
+        return _make_fake_iter(events)
+
+    from backend.session_manager import SessionManager
+    mock_graph = type("MockGraph", (), {
+        "checkpointer": type("Checkpointer", (), {"list": lambda self, c: []})(),
+        "astream_events": fake_astream_events,
+    })()
+
+    # Patch the method on the class so the route's fresh instance picks it up.
+    original_get_session = SessionManager.get_session
+    def patched_get_session(self, sid):
+        sess = original_get_session(self, sid)
+        if sid == session_id:
+            sess["graph"] = mock_graph
+        return sess
+    monkeypatch.setattr(SessionManager, "get_session", patched_get_session)
+
+    resp = client.post(f"/api/resume/{session_id}", json={"text": "hello"})
+    assert resp.status_code == 200
+
+    events = parse_sse_events(resp.text)
+    tool_call_events = [e for e in events if e["event"] == "tool_call"]
+    assert len(tool_call_events) == 1, "Should emit exactly one tool_call event"
+    tc = tool_call_events[0]["data"]
+    assert tc["name"] == "today_tool"
+    assert tc["args"] == '{"date": "2026-09-08"}'
+
+
 @pytest.fixture
 def graphs(client):
     """Return the list of registered graphs."""

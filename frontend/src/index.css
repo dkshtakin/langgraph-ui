@@ -190,3 +190,66 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Tool call blocks ─────────────────────────────────────────────── */
+
+.tool-call-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.tool-call-block {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--reasoning-bg);
+  overflow: hidden;
+}
+
+.tool-call-valid {
+  border-color: #d1fae5;
+}
+
+.tool-call-invalid {
+  border-color: #fef3c7;
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.04);
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-call-name {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tool-call-badge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fee2e2;
+  color: #991b1b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tool-call-args {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-top: 1px solid var(--border);
+}

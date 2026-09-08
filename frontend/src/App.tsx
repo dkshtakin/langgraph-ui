@@ -6,13 +6,14 @@ import { createSession, type Session } from './api/client'
 import { streamResume, SseCallbacks } from './api/sseClient'
 import type { ChatMessage } from './components/ChatView'
 
-import type { StreamState } from './types'
+import type { StreamState, ToolCallEvent } from './types'
 
 interface LiveStream {
   sessionId: string
   assistantMsgId: string
   text: string
   reasoning: string
+  toolCalls: ToolCallEvent[]
   state: StreamState
 }
 
@@ -41,7 +42,8 @@ export default function App() {
     let initState: StreamState = 'initializing'
     let initText = ''
     let initReasoning = ''
-    setLiveStream({ sessionId: s.session_id, assistantMsgId: initId, text: '', reasoning: '', state: initState })
+    let initToolCalls: ToolCallEvent[] = []
+    setLiveStream({ sessionId: s.session_id, assistantMsgId: initId, text: '', reasoning: '', toolCalls: [], state: initState })
 
     const controller = streamResume(s.session_id, '', {
       onChunk: (type, content) => {
@@ -56,14 +58,22 @@ export default function App() {
           ),
         )
       },
+      onToolCall: (call) => {
+        initToolCalls = [...initToolCalls, call]
+        flushSync(() =>
+          setLiveStream((prev) =>
+            prev ? { ...prev, toolCalls: initToolCalls } : prev,
+          ),
+        )
+      },
       onInterrupt: () => {
         // Persist the initialization output as a message so it stays visible.
-        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning }])
+        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning, toolCalls: initToolCalls }])
         setLiveStream(null)
       },
       onDone: () => {
         // Persist the initialization output as a message so it stays visible.
-        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning }])
+        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning, toolCalls: initToolCalls }])
         setLiveStream(null)
       },
       onError: (detail) => {
@@ -95,6 +105,7 @@ export default function App() {
 
     let accumulatedText = ''
     let accumulatedReasoning = ''
+    let accumulatedToolCalls: ToolCallEvent[] = []
     let state: StreamState = 'streaming'
 
     const callbacks: SseCallbacks = {
@@ -105,7 +116,15 @@ export default function App() {
           accumulatedReasoning += content
         }
         flushSync(() =>
-          setLiveStream({ sessionId: session.session_id, assistantMsgId, text: accumulatedText, reasoning: accumulatedReasoning, state }),
+          setLiveStream({ sessionId: session.session_id, assistantMsgId, text: accumulatedText, reasoning: accumulatedReasoning, toolCalls: accumulatedToolCalls, state }),
+        )
+      },
+      onToolCall: (call) => {
+        accumulatedToolCalls = [...accumulatedToolCalls, call]
+        flushSync(() =>
+          setLiveStream((prev) =>
+            prev ? { ...prev, toolCalls: accumulatedToolCalls } : prev,
+          ),
         )
       },
       onInterrupt: () => {
@@ -114,7 +133,7 @@ export default function App() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
-              ? { ...m, text: accumulatedText, reasoning: accumulatedReasoning }
+              ? { ...m, text: accumulatedText, reasoning: accumulatedReasoning, toolCalls: accumulatedToolCalls }
               : m,
           ),
         )
@@ -126,7 +145,7 @@ export default function App() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
-              ? { ...m, text: accumulatedText, reasoning: accumulatedReasoning }
+              ? { ...m, text: accumulatedText, reasoning: accumulatedReasoning, toolCalls: accumulatedToolCalls }
               : m,
           ),
         )
@@ -178,6 +197,7 @@ export default function App() {
             messages={messages}
             streamingText={liveStream?.text ?? ''}
             reasoningText={liveStream?.reasoning ?? ''}
+            streamingToolCalls={liveStream?.toolCalls}
             streamState={liveStream?.state ?? 'idle'}
           />
           <InputBar

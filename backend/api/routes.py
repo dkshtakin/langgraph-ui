@@ -190,6 +190,19 @@ def create_router() -> APIRouter:
                                 yield _format_sse(
                                     {"event": chunk["type"], "data": {"content": chunk["content"]}}
                                 ) + "\n\n"
+
+                            # Emit tool call events — mirrors sse_streaming.py handler.
+                            # Valid calls use event "tool_call"; invalid ones keep their
+                            # original type so the frontend can distinguish them.
+                            content_block = msg_data.get("content") or {}
+                            ct = content_block.get("type", "")
+                            if ct in ("tool_call", "invalid_tool_call"):
+                                name = content_block.get("name", "")
+                                args = content_block.get("args", {})
+                                sse_event = "tool_call" if ct == "tool_call" else "invalid_tool_call"
+                                yield _format_sse(
+                                    {"event": sse_event, "data": {"name": name, "args": json.dumps(args)}}
+                                ) + "\n\n"
                 except Exception as exc:
                     tb = traceback.format_exc()
                     logger.error("[resume] graph iteration error:\n%s", tb)
