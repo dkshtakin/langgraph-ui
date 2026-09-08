@@ -191,8 +191,9 @@ def create_router() -> APIRouter:
                                     {"event": chunk["type"], "data": {"content": chunk["content"]}}
                                 ) + "\n\n"
                 except Exception as exc:
-                    logger.error("[resume] graph iteration error: %s", exc)
-                    graph_error = exc
+                    tb = traceback.format_exc()
+                    logger.error("[resume] graph iteration error:\n%s", tb)
+                    graph_error = (exc, tb)
 
                 # Flush any remaining buffered text — mirrors the final flush
                 # in sse_streaming.py before yielding the end marker.
@@ -208,8 +209,9 @@ def create_router() -> APIRouter:
 
                 # Determine final event — error takes priority over done/interrupt
                 if graph_error is not None:
+                    exc, tb = graph_error
                     yield _format_sse(
-                        {"event": "error", "data": {"detail": f"{type(graph_error).__name__}: {graph_error}"}}
+                        {"event": "error", "data": {"detail": f"{type(exc).__name__}: {exc}\n\n{tb}"}}
                     ) + "\n\n"
                 else:
                     try:
