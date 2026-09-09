@@ -1,26 +1,21 @@
 """Shared prompt loading for graph nodes.
 
-Reads SOUL.md and OUTPUT.md from a configurable directory (default: ``planner``).
-Falls back to minimal defaults when files are absent.
+Each graph stores its own ``SOUL.md`` (and optionally ``OUTPUT.md``) in its
+own directory.  Use :py:func:`_load_graph_prompt` to resolve them with a
+fallback to minimal defaults.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-
-_PLANNER_DIR = os.environ.get("PLANNER_DIR", "planner")
 
 _DEFAULT_SOUL = "You are a helpful assistant."
 _DEFAULT_SUMMARY = "Please summarize what was discussed."
 
 
-def _load_prompt(filename: str) -> str:
-    path = Path(_PLANNER_DIR) / filename
+def _load_graph_prompt(graph_dir: Path, filename: str) -> str:
+    """Read *filename* from *graph_dir*, returning ``""`` on failure."""
+    path = graph_dir / filename
     if path.exists():
         return path.read_text(encoding="utf-8")
     return ""
-
-
-SYSTEM_PROMPT: str = _load_prompt("SOUL.md") or _DEFAULT_SOUL
-SUMMARY_PROMPT: str = _load_prompt("OUTPUT.md") or _DEFAULT_SUMMARY

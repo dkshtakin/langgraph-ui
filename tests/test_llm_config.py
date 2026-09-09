@@ -68,4 +68,3 @@ def test_env_example_exists_and_contains_vars(tmp_path):
 
     content = open(env_example, encoding="utf-8").read()
     assert "LLM_API_KEY" in content, ".env.example must document LLM_API_KEY."
-    assert "PLANNER_DIR" in content, ".env.example must document PLANNER_DIR."
