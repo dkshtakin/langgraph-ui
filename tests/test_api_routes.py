@@ -205,6 +205,11 @@ def test_resume_emits_tool_call_event(client, monkeypatch):
     assert session_resp.status_code == 200
     session_id = session_resp.json()["session_id"]
 
+    async def _empty_alist():
+        """Return an empty async generator — mirrors InMemorySaver.alist() for mock checkpointer."""
+        return
+        yield  # turn this into an async generator function
+
     # Fake async event stream that yields a content-block-finish with tool_call.
     # Must return a coroutine (not an async generator) so `await graph.astream_events()` works.
     async def _make_fake_iter(events):
@@ -239,7 +244,10 @@ def test_resume_emits_tool_call_event(client, monkeypatch):
 
     from backend.session_manager import SessionManager
     mock_graph = type("MockGraph", (), {
-        "checkpointer": type("Checkpointer", (), {"list": lambda self, c: []})(),
+        "checkpointer": type("Checkpointer", (), {
+            "list": lambda self, c: [],
+            "alist": lambda self, c: _empty_alist(),  # async generator mock
+        })(),
         "astream_events": fake_astream_events,
     })()
 

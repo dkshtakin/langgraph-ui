@@ -11,3 +11,4 @@ uvicorn[standard]>=0.23
 
 pytest
 pytest-asyncio
+aiosqlite

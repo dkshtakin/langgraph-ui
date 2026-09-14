@@ -26,10 +26,50 @@ from fastapi.staticfiles import StaticFiles
 # Enable debug-level logging so SSE streaming internals are visible.
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
 
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
 from backend.api.routes import create_router
+from backend.persistence import get_async_db
+
+_prod_saver = None  # lazily initialised when the first request arrives
+
+
+_prod_loop_id: int | None = None  # id() of the loop that created _prod_saver
+
+
+def _get_session_manager():
+    """Return the production SessionManager (singleton, created lazily).
+
+    The AsyncSqliteSaver is created inside this function so it sees a
+    running event loop — FastAPI request handlers always run one.
+
+    If the saved saver was built for a different loop (e.g. after a
+    TestClient context exits in pytest and a new loop starts), we recreate
+    it bound to the current loop.  The underlying SQLite file from
+    ``get_async_db()`` is shared with the sync connection used by the
+    persistence CRUD layer, so checkpoint data and session metadata
+    persist across saver instances.
+
+    We compare ``id(loop)`` rather than calling ``loop.is_closed()`` —
+    TestClient does not close its loop immediately on exit; the loop
+    object stays alive until garbage-collected, so ``is_closed()`` may
+    report ``False`` while the current request is already running on a
+    *different* loop.
+    """
+    import asyncio
+
+    global _prod_saver, _prod_loop_id
+    current_loop_id = id(asyncio.get_running_loop())
+    if _prod_saver is None or _prod_loop_id != current_loop_id:
+        from backend.session_manager import SessionManager
+
+        _prod_saver = AsyncSqliteSaver(get_async_db())
+        _prod_loop_id = current_loop_id
+    return SessionManager(checkpointer=_prod_saver)
+
 
 app = FastAPI(title="Book Planner API")
-app.include_router(create_router())
+app.include_router(create_router(session_manager_factory=_get_session_manager))
 
 # ── SPA static file serving ────────────────────────────────────────────────
 

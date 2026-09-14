@@ -20,7 +20,7 @@ import traceback
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel
@@ -40,9 +40,69 @@ class ResumeRequest(BaseModel):
     text: str = ""
 
 
-def create_router() -> APIRouter:
-    """Build and return the API router with all endpoints."""
+def create_router(
+    session_manager_factory: Any | None = None,
+) -> APIRouter:
+    """Build and return the API router with all endpoints.
+
+    Parameters
+    ----------
+    session_manager_factory : callable | SessionManager | None
+        A factory function returning a SessionManager (production — called
+        lazily inside each request so AsyncSqliteSaver can acquire its
+        event loop), or a pre-built instance/``None`` for tests where
+        each test creates its own isolated router.
+    """
+    import inspect
+
+    from backend.session_manager import SessionManager
+
     router = APIRouter(prefix="/api")
+
+    # Mutable container: read by inner functions, set once on first access.
+    _session_manager: list[Any | None] = [session_manager_factory]
+
+    async def _get_session_manager() -> Any:
+        """Return a SessionManager instance.
+
+        Async because the production factory (main.py) needs a running event
+        loop to initialise AsyncSqliteSaver; FastAPI's sync Depends runs
+        sync-dependencies through anyio's worker-thread pool where no loop
+        exists. An async dependency is awaited in-place and stays on the
+        event-loop thread.
+
+        The result is cached after first call — this preserves session state
+        across requests within a single TestClient lifespan (tests) or server
+        process (production). When a production factory is used, the manager
+        is recreated if its AsyncSqliteSaver's loop has closed (e.g. after
+        TestClient cleanup in pytest) so subsequent requests keep working.
+        """
+        if _session_manager[0] is None:
+            mgr = SessionManager()
+            _session_manager[0] = mgr
+            return mgr
+
+        obj = _session_manager[0]
+        # Production factory — call it, but invalidate cache if the saved
+        # manager's saver was built for a different loop (e.g. after
+        # TestClient exits and pytest starts a new loop).
+        if inspect.isfunction(obj) or inspect.isbuiltin(obj) or inspect.ismethod(obj):
+            result = obj()
+            if inspect.isawaitable(result):
+                result = await result
+            if hasattr(result, "_checkpointer"):
+                saver = result._checkpointer
+                # Compare loop id, not is_closed(): TestClient keeps the old
+                # loop object alive until GC, so is_closed() may still be False
+                # while we are already running on a brand-new loop.
+                import asyncio
+
+                current_loop_id = id(asyncio.get_running_loop())
+                if hasattr(saver, "loop") and id(saver.loop) != current_loop_id:
+                    _session_manager[0] = session_manager_factory  # restore factory so next call recreates with fresh loop
+            _session_manager[0] = result
+            return result
+        return obj
 
     # ── graph listing ────────────────────────────────────────────────────
 
@@ -56,30 +116,44 @@ def create_router() -> APIRouter:
 
     # ── session management ───────────────────────────────────────────────
 
+    @router.get("/sessions")
+    async def list_sessions(
+        mgr: Any = Depends(_get_session_manager),
+    ) -> dict[str, Any]:
+        """Return the list of sessions with lazy-computed status.
+
+        Status is determined read-only by inspecting checkpoint history;
+        graph state is not modified.
+        """
+        rows = mgr.list_all_sessions()
+        for row in rows:
+            row["status"] = (await mgr.get_session_status(row["session_id"])) or row["status"]
+        return {"sessions": rows}
+
     @router.post("/sessions")
-    async def create_session(body: CreateSessionRequest) -> dict[str, str]:
+    async def create_session(
+        body: CreateSessionRequest,
+        mgr: Any = Depends(_get_session_manager),
+    ) -> dict[str, str]:
         """Create a new session for *body.graph_id*.
 
         Returns
         -------
-        dict with ``session_id``, ``thread_id``, and ``graph_id``.
+        dict with ``session_id``, ``thread_id``, ``graph_id``, and ``graph_name``.
         """
-        from backend.session_manager import SessionManager
-
-        mgr = SessionManager()
         return mgr.create_session(body.graph_id)
 
     @router.delete("/sessions/{session_id}")
-    async def delete_session(session_id: str) -> dict[str, bool]:
+    async def delete_session(
+        session_id: str,
+        mgr: Any = Depends(_get_session_manager),
+    ) -> dict[str, bool]:
         """Delete a session and its checkpoint data.
 
         Returns
         -------
         dict with ``deleted`` set to ``True`` on success.
         """
-        from backend.session_manager import SessionManager
-
-        mgr = SessionManager()
         session = mgr.get_session(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found")
@@ -92,6 +166,7 @@ def create_router() -> APIRouter:
         session_id: str,
         body: ResumeRequest,
         request: Request,
+        mgr: Any = Depends(_get_session_manager),
     ) -> StreamingResponse:
         """Send a user message into *session_id* and stream the graph response via SSE.
 
@@ -110,9 +185,6 @@ def create_router() -> APIRouter:
         """
         from langchain_core.messages import HumanMessage
 
-        from backend.session_manager import SessionManager
-
-        mgr = SessionManager()
         session = mgr.get_session(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found")
@@ -125,7 +197,7 @@ def create_router() -> APIRouter:
             from backend.streaming_parser import flush_buffer, parse_reasoning
 
             try:
-                history = list(graph.checkpointer.list(config))
+                history = [c async for c in graph.checkpointer.alist(config)]
 
                 if body.text and history:
                     human_msg = HumanMessage(content=body.text)

@@ -1,9 +1,12 @@
 """Session manager — creates and drives LangGraph sessions with checkpointing.
 
 Each session gets a unique ``thread_id`` (UUID) and its own compiled graph
-instance backed by an :class:`langgraph.checkpoint.memory.InMemorySaver`.
-The graph pauses at :py:func:`langgraph.types.interrupt` until the client
-calls :py:meth:`SessionManager.resume`.
+instance backed by a checkpointer (by default :class:`InMemorySaver`, or a
+user-supplied :class:`SqliteSaver` for production).
+
+Session metadata is persisted to SQLite when a SqliteSaver is configured.
+On construction the manager restores any previously saved sessions from the
+database; graphs are compiled lazily on first use.
 
 Usage
 -----
@@ -16,6 +19,9 @@ Usage
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 import uuid
 from typing import Any
 
@@ -24,26 +30,50 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from backend import GRAPH_REGISTRY, get_graph_name
+from backend.persistence import (
+    _create_tables as _ensure_sessions_table,
+    has_resume_write,
+)
 
-
-# Module-level singleton — shared across all requests.
-_instance: SessionManager | None = None
+logger = logging.getLogger(__name__)
 
 
 class SessionManager:
     """Manages LangGraph sessions with checkpoint-based interrupt/resume."""
 
-    def __new__(cls) -> "SessionManager":
-        global _instance
-        if _instance is None:
-            _instance = super().__new__(cls)
-            _instance._sessions: dict[str, dict[str, Any]] = {}
-        return _instance
+    def __init__(self, checkpointer: Any | None = None) -> None:
+        """Initialise the session manager.
 
-    def __init__(self) -> None:
-        # Singleton ensures this runs only once; guard for safety.
-        if not hasattr(self, "_sessions"):
-            self._sessions = {}
+        Parameters
+        ----------
+        checkpointer : Checkpointer | None
+            A LangGraph checkpointer instance.  If ``None``, an
+            :class:`InMemorySaver` is created (intended for tests).
+        """
+        self._checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
+        self._sessions: dict[str, dict[str, Any]] = {}
+        self._restore_sessions()
+
+    def _maybe_with_db(self) -> Any:
+        """Return the underlying SQLite connection for sync CRUD operations.
+
+        Returns ``None`` for in-memory checkers (e.g. InMemorySaver).
+        For AsyncSqliteSaver we return the sync connection from get_db()
+        because the persistence CRUD functions are synchronous — the
+        async connection would produce unawaited-coroutine warnings.
+        """
+        if not hasattr(self._checkpointer, "conn"):
+            return None
+        # AsyncSqliteSaver.conn is an aiosqlite.Connection which cannot be
+        # used with synchronous sqlite3 API; fall back to the sync conn.
+        import sqlite3
+
+        raw_conn = self._checkpointer.conn
+        if isinstance(raw_conn, sqlite3.Connection):
+            return raw_conn
+        from backend.persistence import get_db
+
+        return get_db()
 
     # ── session lifecycle ────────────────────────────────────────────────
 
@@ -52,28 +82,48 @@ class SessionManager:
 
         Returns
         -------
-        dict with keys ``session_id``, ``thread_id``, and ``graph_id``.
+        dict with keys ``session_id``, ``thread_id``, ``graph_id``, and
+        ``graph_name``.
         """
+        from backend.persistence import create_session, get_db, _format_title
+
         thread_id = str(uuid.uuid4())
         session_id = str(uuid.uuid4())
 
-        # Build a fresh compiled graph instance with InMemorySaver for this session.
-        checkpointer = InMemorySaver()
+        # Build a fresh compiled graph instance with the configured checkpointer.
         compiled_graph = GRAPH_REGISTRY[graph_id]
-        graph_instance = compiled_graph.builder.compile(checkpointer=checkpointer)
+        graph_instance = compiled_graph.builder.compile(checkpointer=self._checkpointer)
 
-        self._sessions[session_id] = {
+        graph_name = get_graph_name(graph_id)
+        created_at = time.time()
+        title = _format_title(graph_name, created_at)
+
+        session_record: dict[str, Any] = {
             "session_id": session_id,
             "thread_id": thread_id,
             "graph_id": graph_id,
             "graph": graph_instance,
+            "title": title,
+            "status": "running",
+            "created_at": created_at,
         }
+        self._sessions[session_id] = session_record
+
+        # Persist metadata to SQLite when a persistent checkpointer is in use.
+        conn = self._maybe_with_db()
+        if conn is not None:
+            try:
+                _ensure_sessions_table(conn)
+                create_session(conn, session_id, thread_id, graph_id, title)
+            except Exception as exc:
+                logger.warning("Failed to persist session %s: %s", session_id, exc)
 
         return {
             "session_id": session_id,
             "thread_id": thread_id,
             "graph_id": graph_id,
-            "graph_name": get_graph_name(graph_id),
+            "graph_name": graph_name,
+            "title": title,
         }
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
@@ -88,6 +138,49 @@ class SessionManager:
                 session["graph"].checkpointer.delete_thread(session["thread_id"])
             except Exception:
                 pass
+
+        # Remove persistence record.
+        conn = self._maybe_with_db()
+        if conn is not None:
+            try:
+                from backend.persistence import delete_session
+
+                delete_session(conn, session_id)
+            except Exception as exc:
+                logger.warning("Failed to delete session record %s: %s", session_id, exc)
+
+    # ── restore on startup ───────────────────────────────────────────────
+
+    def _restore_sessions(self) -> None:
+        """Load persisted session metadata from SQLite (production only)."""
+        if not hasattr(self._checkpointer, "conn"):
+            return
+
+        from backend.persistence import list_sessions
+
+        try:
+            conn = self._maybe_with_db()
+            if conn is None:
+                return
+            _ensure_sessions_table(conn)
+            rows = list_sessions(conn)
+        except Exception as exc:
+            logger.warning("Failed to restore sessions from DB: %s", exc)
+            return
+
+        for row in rows:
+            session_id = row["session_id"]
+            # Build a stub entry — the graph will be compiled lazily on first use.
+            self._sessions[session_id] = {
+                "session_id": session_id,
+                "thread_id": row["thread_id"],
+                "graph_id": row["graph_id"],
+                "title": row["title"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+            }
+
+        logger.info("Restored %d session(s) from persistence store.", len(rows))
 
     # ── resume / invoke ──────────────────────────────────────────────────
 
@@ -108,7 +201,7 @@ class SessionManager:
             Graph output including any ``__interrupt__`` key if the graph
             paused.
         """
-        # Find the session by thread_id.
+        # Find the session by thread_id — may need to compile the graph first.
         session = next(
             (s for s in self._sessions.values() if s["thread_id"] == thread_id),
             None,
@@ -116,5 +209,82 @@ class SessionManager:
         if session is None:
             raise ValueError(f"Session not found for thread_id {thread_id!r}")
 
+        # Lazy-compile the graph if it hasn't been created yet (restored session).
+        if "graph" not in session:
+            compiled_graph = GRAPH_REGISTRY[session["graph_id"]]
+            session["graph"] = compiled_graph.builder.compile(
+                checkpointer=self._checkpointer
+            )
+
         config = {"configurable": {"thread_id": thread_id}}
         return session["graph"].invoke(value, config=config)
+
+    # ── listing ──────────────────────────────────────────────────────────
+
+    def list_all_sessions(self) -> list[dict[str, Any]]:
+        """Return all session metadata dicts currently known to this manager.
+
+        For managers backed by a :class:`SqliteSaver` the list is populated
+        from the database on construction (see :py:meth:`_restore_sessions`).
+        """
+        return [
+            {
+                "session_id": s["session_id"],
+                "thread_id": s["thread_id"],
+                "graph_id": s["graph_id"],
+                "title": s["title"],
+                "status": s.get("status"),
+                "created_at": s["created_at"],
+            }
+            for s in self._sessions.values()
+        ]
+
+    # ── status helpers ───────────────────────────────────────────────────
+
+    async def get_session_status(self, session_id: str) -> str | None:
+        """Return the computed status for *session_id*, or ``None`` if not found.
+
+        Uses :py:meth:`langgraph.checkpoint.base.BaseCheckpointSaver.aget_tuple`
+        to verify checkpoint history, then queries the underlying SQLite
+        ``writes`` table for ``__resume__`` entries to distinguish
+        ``paused`` from ``completed``.  Read-only — does not modify graph state.
+
+        Async because :class:`AsyncSqliteSaver` requires a running event loop
+        for its query methods; calling the sync counterpart would dispatch
+        through ``run_coroutine_threadsafe`` on whatever loop happens to be
+        active at call time (which may already be closed in pytest).
+        """
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+
+        graph = session.get("graph")
+        if graph is None:
+            # Restored session that hasn't been compiled yet — assume running.
+            return "running"
+
+        thread_id = session["thread_id"]
+        config = {"configurable": {"thread_id": thread_id}}
+
+        # Check if the checkpointer has any history for this thread.
+        try:
+            tuple_result = await graph.checkpointer.aget_tuple(config)
+        except (NotImplementedError, AttributeError):
+            # Sync checkpointer (SqliteSaver / InMemorySaver) — use sync API.
+            tuple_result = graph.checkpointer.get_tuple(config)
+
+        if tuple_result is None:
+            return "running"
+
+        # For SQLite-backed checkers, look for __resume__ writes to decide.
+        conn = graph.checkpointer.conn if hasattr(graph.checkpointer, "conn") else None
+        if conn is not None:
+            try:
+                has_resume = has_resume_write(conn, thread_id)
+                return "completed" if has_resume else "paused"
+            except Exception as exc:
+                logger.warning("Status check failed for %s: %s", session_id, exc)
+                return "completed"  # fallback
+
+        # In-memory checkpointer — if there's checkpoint history assume completed.
+        return "completed"
