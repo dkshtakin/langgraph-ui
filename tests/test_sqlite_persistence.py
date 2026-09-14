@@ -321,3 +321,29 @@ def test_create_and_delete_session_via_persistence():
 
     # Double-delete is safe.
     assert delete_session(conn, sid) is False
+
+
+def test_update_session_title_via_persistence():
+    """update_session_title writes a new title and updated_at to the DB."""
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(":memory:", check_same_thread=False)
+    _ensure_tables(conn)
+    from backend.persistence import create_session, get_session, update_session_title
+
+    sid = "test-sid"
+    tid = "test-tid"
+    create_session(conn, sid, tid, "book_planner", "Original Title")
+
+    import time
+
+    time.sleep(0.01)
+    updated = update_session_title(conn, sid, "New Title")
+    assert updated is True
+
+    row = get_session(conn, sid)
+    assert row["title"] == "New Title"
+    assert row["updated_at"] > row["created_at"]
+
+    # Update to a non-existent session returns False.
+    assert update_session_title(conn, "missing", "X") is False

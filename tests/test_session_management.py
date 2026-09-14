@@ -201,3 +201,46 @@ def test_deleted_session_cannot_resume(session_manager):
 def test_get_session_returns_none_for_unknown(session_manager):
     """get_session returns None for unknown session IDs."""
     assert session_manager.get_session("unknown") is None
+
+
+# ---------------------------------------------------------------------------
+# Rename / title update
+# ---------------------------------------------------------------------------
+
+
+def test_rename_session_updates_title(session_manager):
+    """rename_session updates the in-memory title."""
+    session = session_manager.create_session(_TEST_GRAPH_ID)
+    sid = session["session_id"]
+
+    result = session_manager.rename_session(sid, "Custom Name")
+    assert result is not None
+    assert result["title"] == "Custom Name"
+
+
+def test_rename_session_returns_none_for_unknown(session_manager):
+    """rename_session returns None for a non-existent session."""
+    assert session_manager.rename_session("nonexistent", "Name") is None
+
+
+def test_rename_session_updates_updated_at(session_manager):
+    """rename_session updates updated_at to the current time."""
+    import time
+
+    session = session_manager.create_session(_TEST_GRAPH_ID)
+    sid = session["session_id"]
+    before = session_manager._sessions[sid]["updated_at"]
+
+    time.sleep(0.01)
+    result = session_manager.rename_session(sid, "New Title")
+    assert result is not None
+    assert result["updated_at"] > before
+
+
+def test_list_sessions_includes_updated_at(session_manager):
+    """list_all_sessions returns rows that include updated_at."""
+    session = session_manager.create_session(_TEST_GRAPH_ID)
+    sid = session["session_id"]
+
+    row = next(r for r in session_manager.list_all_sessions() if r["session_id"] == sid)
+    assert "updated_at" in row

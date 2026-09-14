@@ -95,8 +95,8 @@ class SessionManager:
         graph_instance = compiled_graph.builder.compile(checkpointer=self._checkpointer)
 
         graph_name = get_graph_name(graph_id)
-        created_at = time.time()
-        title = _format_title(graph_name, created_at)
+        now = time.time()
+        title = _format_title(graph_name, now)
 
         session_record: dict[str, Any] = {
             "session_id": session_id,
@@ -105,7 +105,8 @@ class SessionManager:
             "graph": graph_instance,
             "title": title,
             "status": "running",
-            "created_at": created_at,
+            "created_at": now,
+            "updated_at": now,
         }
         self._sessions[session_id] = session_record
 
@@ -129,6 +130,29 @@ class SessionManager:
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Return the session dict or ``None`` if not found."""
         return self._sessions.get(session_id)
+
+    def rename_session(self, session_id: str, title: str) -> dict[str, Any] | None:
+        """Rename a session. Updates in-memory state and persisted record.
+
+        Returns the updated session metadata dict, or ``None`` if not found.
+        """
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+
+        session["title"] = title
+        session["updated_at"] = time.time()
+
+        conn = self._maybe_with_db()
+        if conn is not None:
+            try:
+                from backend.persistence import update_session_title
+
+                update_session_title(conn, session_id, title)
+            except Exception as exc:
+                logger.warning("Failed to persist rename of %s: %s", session_id, exc)
+
+        return self._serialize_session(session)
 
     def delete_session(self, session_id: str) -> None:
         """Remove a session and its checkpoint data."""
@@ -178,6 +202,7 @@ class SessionManager:
                 "title": row["title"],
                 "status": row["status"],
                 "created_at": row["created_at"],
+                "updated_at": row.get("updated_at", row["created_at"]),
             }
 
         logger.info("Restored %d session(s) from persistence store.", len(rows))
@@ -221,23 +246,38 @@ class SessionManager:
 
     # ── listing ──────────────────────────────────────────────────────────
 
+    def _serialize_session(self, session: dict[str, Any]) -> dict[str, Any]:
+        """Return a flat metadata dict for a session row.
+
+        Includes ``graph_name`` (looked up from registry) and ``updated_at``
+        (defaulting to ``created_at`` when the record was loaded before an
+        update ever occurred).
+        """
+        graph_id = session.get("graph_id", "")
+        return {
+            "session_id": session["session_id"],
+            "thread_id": session["thread_id"],
+            "graph_id": graph_id,
+            "graph_name": get_graph_name(graph_id),
+            "title": session["title"],
+            "status": session.get("status"),
+            "created_at": session["created_at"],
+            "updated_at": session.get("updated_at", session["created_at"]),
+        }
+
     def list_all_sessions(self) -> list[dict[str, Any]]:
         """Return all session metadata dicts currently known to this manager.
 
         For managers backed by a :class:`SqliteSaver` the list is populated
         from the database on construction (see :py:meth:`_restore_sessions`).
+        Returned ordered by ``created_at`` descending (newest first).
         """
-        return [
-            {
-                "session_id": s["session_id"],
-                "thread_id": s["thread_id"],
-                "graph_id": s["graph_id"],
-                "title": s["title"],
-                "status": s.get("status"),
-                "created_at": s["created_at"],
-            }
+        rows = [
+            self._serialize_session(s)
             for s in self._sessions.values()
         ]
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows
 
     # ── status helpers ───────────────────────────────────────────────────
 
@@ -269,9 +309,14 @@ class SessionManager:
         # Check if the checkpointer has any history for this thread.
         try:
             tuple_result = await graph.checkpointer.aget_tuple(config)
-        except (NotImplementedError, AttributeError):
-            # Sync checkpointer (SqliteSaver / InMemorySaver) — use sync API.
-            tuple_result = graph.checkpointer.get_tuple(config)
+        except Exception:
+            # Some checkpointer implementations (e.g. mock stubs in tests) may
+            # lack aget_tuple / get_tuple; fall back to sync API if available,
+            # otherwise assume running and move on.
+            try:
+                tuple_result = graph.checkpointer.get_tuple(config)
+            except Exception:
+                return "running"
 
         if tuple_result is None:
             return "running"

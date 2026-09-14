@@ -97,6 +97,36 @@ def test_get_graphs_contains_registered(graphs):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/sessions
+# ---------------------------------------------------------------------------
+
+
+def test_get_sessions_returns_list(client):
+    """GET /api/sessions returns a dict with a 'sessions' list."""
+    resp = client.get("/api/sessions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, dict)
+    assert "sessions" in data
+    assert isinstance(data["sessions"], list)
+
+
+def test_get_sessions_fields(client):
+    """GET /api/sessions returns rows with all required metadata fields."""
+    # Create a session so we have something to inspect.
+    create_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert create_resp.status_code == 200
+    sid = create_resp.json()["session_id"]
+
+    resp = client.get("/api/sessions")
+    data = resp.json()
+    row = next(r for r in data["sessions"] if r["session_id"] == sid)
+    required = {"session_id", "thread_id", "graph_id", "graph_name", "title",
+                "status", "created_at", "updated_at"}
+    assert required.issubset(row.keys()), f"Missing fields: {required - row.keys()}"
+
+
+# ---------------------------------------------------------------------------
 # POST /api/sessions
 # ---------------------------------------------------------------------------
 
@@ -269,6 +299,55 @@ def test_resume_emits_tool_call_event(client, monkeypatch):
     tc = tool_call_events[0]["data"]
     assert tc["name"] == "today_tool"
     assert tc["args"] == '{"date": "2026-09-08"}'
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/sessions/{session_id} — rename
+# ---------------------------------------------------------------------------
+
+
+def test_patch_rename_session_404_on_unknown(client):
+    """PATCH /api/sessions returns 404 for an unknown session."""
+    resp = client.patch("/api/sessions/nonexistent", json={"title": "New Title"})
+    assert resp.status_code == 404
+
+
+def test_patch_rename_session_succeeds(client):
+    """PATCH /api/sessions/{id} updates title and returns the full object."""
+    create_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert create_resp.status_code == 200
+    sid = create_resp.json()["session_id"]
+
+    resp = client.patch(f"/api/sessions/{sid}", json={"title": "My Custom Title"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "My Custom Title"
+    assert data["session_id"] == sid
+    required = {"session_id", "thread_id", "graph_id", "graph_name",
+                "title", "status", "created_at", "updated_at"}
+    assert required.issubset(data.keys())
+
+
+def test_patch_rename_session_updates_created_and_updated(client):
+    """PATCH /api/sessions updates updated_at after rename."""
+    create_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert create_resp.status_code == 200
+    sid = create_resp.json()["session_id"]
+
+    # The created session should have updated_at == created_at initially.
+    get_before = client.get("/api/sessions").json()["sessions"]
+    before_row = next(r for r in get_before if r["session_id"] == sid)
+    before_updated = before_row["updated_at"]
+    assert before_updated == before_row["created_at"]
+
+    import time as _time
+
+    _time.sleep(0.05)  # small gap to detect updated_at change
+
+    rename_resp = client.patch(f"/api/sessions/{sid}", json={"title": "Updated"})
+    assert rename_resp.status_code == 200
+    after_data = rename_resp.json()
+    assert after_data["updated_at"] > before_updated, "updated_at must increase after rename"
 
 
 @pytest.fixture

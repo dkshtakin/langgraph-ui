@@ -8,12 +8,14 @@ Endpoints
 GET     /api/graphs            — list registered graphs (id + name).
 POST    /api/sessions          — create a new session, return session_id + thread_id.
 POST    /api/resume/{session_id} — send a user message and stream the graph response via SSE.
-DELETE  /api/sessions/{session_id} — delete a session and its checkpoint data.
-GET     /stream                — legacy SSE streaming endpoint (query-param based).
+PATCH /api/sessions/{session_id} — rename a session (update title).
+DELETE /api/sessions/{session_id} — delete a session and its checkpoint data.
+GET    /stream                  — legacy SSE streaming endpoint (query-param based).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import traceback
@@ -32,6 +34,12 @@ class CreateSessionRequest(BaseModel):
     """Request body for POST /api/sessions."""
 
     graph_id: str = "book_planner"
+
+
+class RenameSessionRequest(BaseModel):
+    """Request body for PATCH /api/sessions/{session_id}."""
+
+    title: str
 
 
 class ResumeRequest(BaseModel):
@@ -126,8 +134,11 @@ def create_router(
         graph state is not modified.
         """
         rows = mgr.list_all_sessions()
-        for row in rows:
-            row["status"] = (await mgr.get_session_status(row["session_id"])) or row["status"]
+        statuses = await asyncio.gather(
+            *(mgr.get_session_status(r["session_id"]) for r in rows)
+        )
+        for row, status in zip(rows, statuses):
+            row["status"] = status or row["status"]
         return {"sessions": rows}
 
     @router.post("/sessions")
@@ -142,6 +153,23 @@ def create_router(
         dict with ``session_id``, ``thread_id``, ``graph_id``, and ``graph_name``.
         """
         return mgr.create_session(body.graph_id)
+
+    @router.patch("/sessions/{session_id}")
+    async def rename_session(
+        session_id: str,
+        body: RenameSessionRequest,
+        mgr: Any = Depends(_get_session_manager),
+    ) -> dict[str, Any]:
+        """Rename *session_id* to *body.title*.
+
+        Returns the updated session metadata on success (200) or 404 if not found.
+        """
+        session = mgr.get_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found")
+
+        result = mgr.rename_session(session_id, body.title)
+        return result
 
     @router.delete("/sessions/{session_id}")
     async def delete_session(

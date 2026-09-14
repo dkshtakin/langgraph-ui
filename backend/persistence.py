@@ -153,6 +153,18 @@ def update_session_status(
     conn.commit()
 
 
+def update_session_title(
+    conn: sqlite3.Connection, session_id: str, title: str
+) -> bool:
+    """Update the title and updated_at for a session. Returns ``True`` if a row was modified."""
+    cur = conn.execute(
+        "UPDATE sessions SET title = ?, updated_at = ? WHERE session_id = ?",
+        (title, time.time(), session_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def delete_session(conn: sqlite3.Connection, session_id: str) -> bool:
     """Delete a session row. Returns ``True`` if a row was removed."""
     cur = conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
