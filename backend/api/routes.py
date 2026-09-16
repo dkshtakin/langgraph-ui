@@ -5,12 +5,13 @@ application factory (e.g. ``app.include_router(create_router())``).
 
 Endpoints
 ---------
-GET     /api/graphs            — list registered graphs (id + name).
-POST    /api/sessions          — create a new session, return session_id + thread_id.
-POST    /api/resume/{session_id} — send a user message and stream the graph response via SSE.
-PATCH /api/sessions/{session_id} — rename a session (update title).
-DELETE /api/sessions/{session_id} — delete a session and its checkpoint data.
-GET    /stream                  — legacy SSE streaming endpoint (query-param based).
+GET     /api/graphs                        — list registered graphs (id + name).
+POST    /api/sessions                      — create a new session, return session_id + thread_id.
+GET    /api/sessions/{session_id}/messages — load normalized message history from checkpoints.
+POST    /api/resume/{session_id}           — send a user message and stream the graph response via SSE.
+PATCH /api/sessions/{session_id}          — rename a session (update title).
+DELETE /api/sessions/{session_id}         — delete a session and its checkpoint data.
+GET    /stream                            — legacy SSE streaming endpoint (query-param based).
 """
 
 from __future__ import annotations
@@ -188,6 +189,56 @@ def create_router(
 
         mgr.delete_session(session_id)
         return {"deleted": True}
+
+    @router.get("/sessions/{session_id}/messages")
+    async def get_session_messages(
+        session_id: str,
+        mgr: Any = Depends(_get_session_manager),
+    ) -> dict[str, Any]:
+        """Return the normalised message history for *session_id*.
+
+        Loads the latest checkpoint via ``aget_tuple()``, extracts
+        ``channel_values["messages"]``, serialises each message, and returns
+        them as ``{"messages": [...]}``.  Falls back to scanning all
+        checkpoints with ``alist()`` when the latest checkpoint has no
+        messages (e.g. terminal node cleared the channel).
+
+        Returns 404 if the session does not exist.
+        """
+        session = mgr.get_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found")
+
+        thread_id = session["thread_id"]
+        graph = session["graph"]
+        config = {"configurable": {"thread_id": thread_id}}
+
+        from backend.api.serializers import serialize_messages
+
+        # Try the latest checkpoint first.
+        try:
+            latest = await graph.checkpointer.aget_tuple(config)
+        except Exception:
+            latest = None
+
+        if latest is not None:
+            channel_values = latest.checkpoint.get("channel_values", {})
+            raw_messages = channel_values.get("messages", [])
+        else:
+            raw_messages = []
+
+        # Fallback: scan all checkpoints for the last one with messages.
+        if not raw_messages:
+            all_checkpoints = []
+            async for cp in graph.checkpointer.alist(config):
+                all_checkpoints.append(cp)
+            for cp in reversed(all_checkpoints):
+                msgs = cp.checkpoint.get("channel_values", {}).get("messages", [])
+                if msgs:
+                    raw_messages = msgs
+                    break
+
+        return {"messages": serialize_messages(raw_messages)}
 
     @router.post("/resume/{session_id}")
     async def resume_session(

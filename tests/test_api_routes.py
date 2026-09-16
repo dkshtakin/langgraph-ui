@@ -35,11 +35,12 @@ class _MsgState(TypedDict):
 def _interrupt_node(state: _MsgState) -> dict:
     if state.get("stage", "dialog") == "dialog":
         interrupt({"reason": "waiting"})
-    return {"messages": [], "stage": "next"}
+    # Return empty dict so the add_messages reducer preserves existing messages.
+    return {"stage": "next"}
 
 
 def _finish_node(state: _MsgState) -> dict:
-    return {"messages": [], "stage": "done"}
+    return {"stage": "done"}
 
 
 _test_builder = StateGraph(_MsgState)
@@ -53,20 +54,36 @@ _test_graph = _test_builder.compile()
 _TEST_GRAPH_ID = "test_api_graph"
 
 
+# Module-level holder for the shared SessionManager so tests can reach in.
+_shared_mgr = None  # type: ignore[assignment]
+
+
 @pytest.fixture(scope="module")
 def client():
     """Return a TestClient with the router and test graph pre-loaded."""
+    global _shared_mgr
+
     from backend import GRAPH_REGISTRY
+    from backend.session_manager import SessionManager
 
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph
 
+    # Shared manager: both the router and test functions use the same instance
+    # so checkpoint state is visible from both sides.
+    _shared_mgr = SessionManager()
     app = FastAPI()
-    app.include_router(create_router())
+    app.include_router(create_router(session_manager_factory=_shared_mgr))
     test_client = TestClient(app)
 
     yield test_client
 
     GRAPH_REGISTRY.pop(_TEST_GRAPH_ID, None)
+
+
+@pytest.fixture(scope="module")
+def shared_session_manager():
+    """Return the SessionManager instance shared with the test client's router."""
+    return _shared_mgr
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +365,167 @@ def test_patch_rename_session_updates_created_and_updated(client):
     assert rename_resp.status_code == 200
     after_data = rename_resp.json()
     assert after_data["updated_at"] > before_updated, "updated_at must increase after rename"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/sessions/{session_id}/messages
+# ---------------------------------------------------------------------------
+
+
+def test_get_session_messages_404_on_unknown_session(client):
+    """GET /api/sessions/{id}/messages returns 404 for an unknown session."""
+    resp = client.get("/api/sessions/nonexistent/messages")
+    assert resp.status_code == 404
+
+
+def test_get_session_messages_completed_session(client):
+    """Completed session returns normalised messages from the latest checkpoint."""
+    session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+
+    # First resume — graph pauses at interrupt (empty input for fresh session).
+    resp = client.post(f"/api/resume/{session_id}", json={"text": "hello"})
+    assert resp.status_code == 200
+
+    # Second resume — injects user message, graph completes.
+    resp = client.post(f"/api/resume/{session_id}", json={"text": "reply"})
+    assert resp.status_code == 200
+
+    # Load messages via the new endpoint.
+    msgs_resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert msgs_resp.status_code == 200
+    data = msgs_resp.json()
+    assert "messages" in data
+    assert isinstance(data["messages"], list)
+    assert len(data["messages"]) >= 1, "Should contain the user message from second resume"
+
+
+def test_get_session_messages_interrupted_session(client):
+    """Interrupted session returns a valid message list from its checkpoint."""
+    session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+
+    # First resume — graph pauses at interrupt (empty input for fresh session).
+    resp = client.post(f"/api/resume/{session_id}", json={"text": "hello"})
+    assert resp.status_code == 200
+
+    # Load messages without resuming further.
+    msgs_resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert msgs_resp.status_code == 200
+    data = msgs_resp.json()
+    assert "messages" in data
+    assert isinstance(data["messages"], list)
+
+
+def test_get_session_messages_includes_system_message(client, shared_session_manager):
+    """SystemMessage appears in the response with role 'system'."""
+    from backend import GRAPH_REGISTRY
+    from langchain.messages import SystemMessage
+    from langchain_core.messages import HumanMessage
+
+    class _SysState(TypedDict):
+        messages: list
+        stage: str
+
+    def _sys_interrupt_node(state: _SysState) -> dict:
+        if state.get("stage", "dialog") == "dialog":
+            interrupt({"reason": "waiting"})
+        return {"stage": "next"}
+
+    def _sys_finish_node(state: _SysState) -> dict:
+        return {"stage": "done"}
+
+    sys_builder = StateGraph(_SysState)
+    sys_builder.add_node("interrupt", _sys_interrupt_node)
+    sys_builder.add_node("finish", _sys_finish_node)
+    sys_builder.add_edge(START, "interrupt")
+    sys_builder.add_edge("interrupt", "finish")
+    sys_graph = sys_builder.compile()
+
+    SYS_GRAPH_ID = "test_sys_graph"
+    GRAPH_REGISTRY[SYS_GRAPH_ID] = sys_graph
+
+    try:
+        resp = client.post("/api/sessions", json={"graph_id": SYS_GRAPH_ID})
+        assert resp.status_code == 200
+        session_id = resp.json()["session_id"]
+        thread_id = resp.json()["thread_id"]
+
+        # Use the shared manager's compiled graph (which has the checkpointer).
+        session = shared_session_manager.get_session(session_id)
+        assert session is not None
+        session_graph = session["graph"]
+        session_graph.invoke(
+            {
+                "messages": [SystemMessage(content="You are helpful"), HumanMessage(content="hi")],
+                "stage": "dialog",
+            },
+            config={"configurable": {"thread_id": thread_id}},
+        )
+
+        msgs_resp = client.get(f"/api/sessions/{session_id}/messages")
+        assert msgs_resp.status_code == 200
+        data = msgs_resp.json()
+        roles = [m["role"] for m in data["messages"]]
+        assert "system" in roles, "SystemMessage should be present with role 'system'"
+    finally:
+        GRAPH_REGISTRY.pop(SYS_GRAPH_ID, None)
+
+
+def test_get_session_messages_serializes_tool_calls(client, shared_session_manager):
+    """ToolCalls are serialised as {name, args} without truncation."""
+    import asyncio
+
+    session_resp = client.post("/api/sessions", json={"graph_id": _TEST_GRAPH_ID})
+    assert session_resp.status_code == 200
+    session_id = session_resp.json()["session_id"]
+    thread_id = session_resp.json()["thread_id"]
+
+    # Two resumes — first pauses, second completes the graph and builds message history.
+    client.post(f"/api/resume/{session_id}", json={"text": "hello"})
+    client.post(f"/api/resume/{session_id}", json={"text": "reply"})
+
+    # Inject an AIMessage with tool_calls directly into the checkpoint.
+    from langchain_core.messages import AIMessage
+
+    session = shared_session_manager.get_session(session_id)
+    assert session is not None
+    graph = session["graph"]
+    config = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+
+    async def _inject():
+        latest = await graph.checkpointer.aget_tuple(config)
+        if latest is not None:
+            channel_values = latest.checkpoint.get("channel_values", {})
+            msgs = list(channel_values.get("messages", []))
+            msgs.append(
+                AIMessage(
+                    content="calling tool",
+                    tool_calls=[{"name": "today_tool", "args": {"date": "2026-09-16"}, "id": "call_1"}],
+                )
+            )
+            updated = {
+                **latest.checkpoint,
+                "channel_values": {**channel_values, "messages": msgs},
+            }
+            await graph.checkpointer.aput(
+                config, updated, {}, latest.checkpoint.get("channel_versions", {})
+            )
+
+    asyncio.run(_inject())
+
+    msgs_resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert msgs_resp.status_code == 200
+    data = msgs_resp.json()
+    assistant_msgs = [m for m in data["messages"] if m["role"] == "assistant"]
+    assert len(assistant_msgs) >= 1
+    tool_call_msg = next(m for m in assistant_msgs if m.get("toolCalls"))
+    assert len(tool_call_msg["toolCalls"]) == 1
+    tc = tool_call_msg["toolCalls"][0]
+    assert tc["name"] == "today_tool"
+    assert tc["args"] == {"date": "2026-09-16"}
 
 
 @pytest.fixture
