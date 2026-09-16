@@ -3,11 +3,12 @@ import type { StreamState } from '../types'
 
 interface InputBarProps {
   streamState: StreamState
+  disabled?: boolean
   onSend: (message: string) => void
   onNewChat: () => void
 }
 
-export default function InputBar({ streamState, onSend, onNewChat }: InputBarProps) {
+export default function InputBar({ streamState, disabled, onSend, onNewChat }: InputBarProps) {
   const [inputValue, setInputValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -55,13 +56,13 @@ export default function InputBar({ streamState, onSend, onNewChat }: InputBarPro
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          disabled={isStreaming || isInitializing}
+          disabled={disabled || isStreaming || isInitializing}
           className="chat-input"
         />
         <button
           className="send-btn"
           onClick={handleSubmit}
-          disabled={isStreaming || isInitializing || !inputValue.trim()}
+          disabled={disabled || isStreaming || isInitializing || !inputValue.trim()}
           title="Send"
         >
           Send

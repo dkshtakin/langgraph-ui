@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom'
 import ChatView from './components/ChatView'
 import InputBar from './components/InputBar'
 import Sidebar from './components/Sidebar'
-import { createSession, getSessions, type Session } from './api/client'
+import { createSession, getMessages, getSessions, type SerializedMessage, type Session } from './api/client'
 import { streamResume, SseCallbacks } from './api/sseClient'
 import type { ChatMessage } from './components/ChatView'
 
@@ -41,12 +41,30 @@ export default function App() {
     }
   }, [])
 
-  const switchSession = useCallback((sessionId: string | null) => {
+  const switchSession = useCallback(async (sessionId: string | null) => {
     abortRef.current?.abort()
     abortRef.current = null
     setMessages([])
     setLiveStream(null)
-    setSession(sessionId ? sessions.find((s) => s.session_id === sessionId) ?? null : null)
+
+    const nextSession = sessionId ? sessions.find((s) => s.session_id === sessionId) ?? null : null
+    setSession(nextSession)
+
+    if (nextSession) {
+      try {
+        const raw = await getMessages(nextSession.session_id)
+        const mapped: ChatMessage[] = raw.map((m, i) => ({
+          id: `msg-${i}`,
+          role: m.role as 'user' | 'assistant',
+          text: m.text ?? '',
+          reasoning: m.reasoning ?? undefined,
+          toolCalls: m.toolCalls ?? undefined,
+        }))
+        setMessages(mapped)
+      } catch {
+        console.error('[App] failed to load messages for session', nextSession.session_id)
+      }
+    }
   }, [sessions])
 
   const startNewSession = useCallback(async () => {
@@ -234,6 +252,7 @@ export default function App() {
             />
             <InputBar
               streamState={liveStream?.state ?? 'idle'}
+              disabled={session?.status === 'completed'}
               onSend={handleSend}
               onNewChat={startNewSession}
             />

@@ -2,7 +2,7 @@ import { ToolCallList } from './ToolCallBlock'
 import type { ToolCallEvent } from '../types'
 
 interface MessageBlockProps {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   text: string
   reasoning?: string
   toolCalls?: ToolCallEvent[]
@@ -13,6 +13,14 @@ export default function MessageBlock({ role, text, reasoning, toolCalls }: Messa
     return (
       <div className="msg-user">
         <div className="msg-bubble user-bubble">{text}</div>
+      </div>
+    )
+  }
+
+  if (role === 'system') {
+    return (
+      <div className="msg-system">
+        <div className="msg-bubble system-bubble" dangerouslySetInnerHTML={{ __html: formatMarkdown(text || '') }} />
       </div>
     )
   }

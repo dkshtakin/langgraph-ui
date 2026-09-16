@@ -50,3 +50,19 @@ export async function deleteSession(sessionId: string): Promise<void> {
     throw new Error(`Failed to delete session: ${res.status}`)
   }
 }
+
+export interface SerializedMessage {
+  role: string
+  text: string | null
+  reasoning: string | null
+  toolCalls?: Array<{ name: string; args: Record<string, unknown> }>
+}
+
+export async function getMessages(sessionId: string): Promise<SerializedMessage[]> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/messages`)
+  if (!res.ok) {
+    throw new Error(`Failed to load messages: ${res.status} ${res.statusText}`)
+  }
+  const body = (await res.json()) as { messages: SerializedMessage[] }
+  return body.messages
+}

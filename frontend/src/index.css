@@ -235,6 +235,15 @@
   white-space: pre-wrap;
 }
 
+.system-bubble {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.875rem;
+  max-width: 100%;
+}
+
 .reasoning-block {
   margin-top: 8px;
   width: 100%;
