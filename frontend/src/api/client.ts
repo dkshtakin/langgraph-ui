@@ -3,6 +3,19 @@ export interface Session {
   thread_id: string
   graph_id: string
   graph_name: string
+  title: string
+  status?: string
+  created_at: number
+  updated_at: number
+}
+
+export async function getSessions(): Promise<Session[]> {
+  const res = await fetch('/api/sessions')
+  if (!res.ok) {
+    throw new Error(`Failed to list sessions: ${res.status} ${res.statusText}`)
+  }
+  const body = (await res.json()) as { sessions: Session[] }
+  return body.sessions
 }
 
 export async function createSession(graphId = 'book_planner'): Promise<Session> {
@@ -13,6 +26,18 @@ export async function createSession(graphId = 'book_planner'): Promise<Session> 
   })
   if (!res.ok) {
     throw new Error(`Failed to create session: ${res.status} ${res.statusText}`)
+  }
+  return res.json() as Promise<Session>
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<Session> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to rename session: ${res.status} ${res.statusText}`)
   }
   return res.json() as Promise<Session>
 }

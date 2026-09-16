@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import ChatView from './components/ChatView'
 import InputBar from './components/InputBar'
-import { createSession, type Session } from './api/client'
+import Sidebar from './components/Sidebar'
+import { createSession, getSessions, type Session } from './api/client'
 import { streamResume, SseCallbacks } from './api/sseClient'
 import type { ChatMessage } from './components/ChatView'
 
@@ -19,11 +20,34 @@ interface LiveStream {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
+  const [sessions, setSessions] = useState<Session[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [nextId, setNextId] = useState(1)
   const [liveStream, setLiveStream] = useState<LiveStream | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
+
+  // Load session list on mount.
+  useEffect(() => {
+    getSessions().then(setSessions).catch(console.error)
+  }, [])
+
+  const refreshSessions = useCallback(async () => {
+    try {
+      const list = await getSessions()
+      setSessions(list)
+    } catch {
+      // Silently ignore — the user can reload the page.
+    }
+  }, [])
+
+  const switchSession = useCallback((sessionId: string | null) => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setMessages([])
+    setLiveStream(null)
+    setSession(sessionId ? sessions.find((s) => s.session_id === sessionId) ?? null : null)
+  }, [sessions])
 
   const startNewSession = useCallback(async () => {
     abortRef.current?.abort()
@@ -32,6 +56,7 @@ export default function App() {
     setLiveStream(null)
     const s = await createSession('book_planner')
     setSession(s)
+    setSessions((prev) => [s, ...prev])
 
     // Kick off the graph immediately — fresh sessions have no history, so
     // passing an empty text lets the graph self-initialise and then pause at
@@ -182,38 +207,46 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <header className="app-header">
-        <h1>Book Planner</h1>
-        {!session && (
-          <button className="new-chat-btn" onClick={startNewSession}>
-            New Chat
-          </button>
-        )}
-      </header>
+      <Sidebar
+        sessions={sessions}
+        activeSessionId={session?.session_id ?? null}
+        onSelect={(id) => switchSession(id || null)}
+      />
 
-      {session ? (
-        <>
-          <ChatView
-            messages={messages}
-            streamingText={liveStream?.text ?? ''}
-            reasoningText={liveStream?.reasoning ?? ''}
-            streamingToolCalls={liveStream?.toolCalls}
-            streamState={liveStream?.state ?? 'idle'}
-          />
-          <InputBar
-            streamState={liveStream?.state ?? 'idle'}
-            onSend={handleSend}
-            onNewChat={startNewSession}
-          />
-        </>
-      ) : (
-        <div className="empty-state">
-          <p>Start a new chat to begin.</p>
-          <button className="new-chat-btn" onClick={startNewSession}>
-            New Chat
-          </button>
-        </div>
-      )}
+      <div className="main-content">
+        <header className="app-header">
+          <h1>Book Planner</h1>
+          {!session && (
+            <button className="new-chat-btn" onClick={startNewSession}>
+              New Chat
+            </button>
+          )}
+        </header>
+
+        {session ? (
+          <>
+            <ChatView
+              messages={messages}
+              streamingText={liveStream?.text ?? ''}
+              reasoningText={liveStream?.reasoning ?? ''}
+              streamingToolCalls={liveStream?.toolCalls}
+              streamState={liveStream?.state ?? 'idle'}
+            />
+            <InputBar
+              streamState={liveStream?.state ?? 'idle'}
+              onSend={handleSend}
+              onNewChat={startNewSession}
+            />
+          </>
+        ) : (
+          <div className="empty-state">
+            <p>Start a new chat to begin.</p>
+            <button className="new-chat-btn" onClick={startNewSession}>
+              New Chat
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
