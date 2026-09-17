@@ -322,7 +322,7 @@ class SessionManager:
             return "running"
 
         # For SQLite-backed checkers, look for __resume__ writes to decide.
-        conn = graph.checkpointer.conn if hasattr(graph.checkpointer, "conn") else None
+        conn = self._maybe_with_db()
         if conn is not None:
             try:
                 has_resume = has_resume_write(conn, thread_id)

@@ -8,6 +8,28 @@ from __future__ import annotations
 
 from typing import Any
 
+def _extract_text_from_content(content: Any) -> str | None:
+    """Pull plain text from LangChain structured content (list of dicts).
+
+    LangChain AIMessage / ToolMessage can store content as a list of blocks
+    like ``[{"type": "text", "text": "..."}]`` instead of a plain string.
+    Returns the concatenated text, or None if no text blocks are found.
+    """
+    if not isinstance(content, list):
+        return str(content) if content else None
+
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, dict):
+            if block.get("type") == "text" and block.get("text"):
+                parts.append(block["text"])
+            elif "text" in block and isinstance(block["text"], str):
+                parts.append(block["text"])
+        elif isinstance(block, str) and block:
+            parts.append(block)
+    return "".join(parts) if parts else None
+
+
 _ROLE_MAP: dict[str, str] = {
     "system": "system",
     "human": "user",
@@ -40,10 +62,8 @@ def serialize_message(message: Any) -> dict[str, Any]:
         text = content
     else:
         # ToolMessage / AIMessage can carry non-string content (dict, list).
-        # Serialise to a JSON string so the frontend always receives a string.
-        import json
-
-        text = json.dumps(content, ensure_ascii=False)
+        # Extract plain text from LangChain structured format.
+        text = _extract_text_from_content(content)
 
     tool_calls: list[dict[str, Any]] = []
     if hasattr(message, "tool_calls") and message.tool_calls:
