@@ -245,6 +245,46 @@ async def test_get_session_status_returns_none_for_unknown(session_manager_with_
     assert await session_manager_with_sqlite.get_session_status("nonexistent") is None
 
 
+@pytest.mark.asyncio
+async def test_status_paused_independent_of_other_sessions(sqlite_saver):
+    """Completing one session must not affect the status of a paused sibling."""
+    from backend import GRAPH_REGISTRY
+
+    original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
+    GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled
+
+    mgr = SessionManager(checkpointer=sqlite_saver)
+
+    # Create two sessions.
+    s1 = mgr.create_session(_TEST_GRAPH_ID)
+    s2 = mgr.create_session(_TEST_GRAPH_ID)
+
+    # Pause both.
+    result1 = mgr.resume(s1["thread_id"], {"messages": [], "stage": "dialog"})
+    result2 = mgr.resume(s2["thread_id"], {"messages": [], "stage": "dialog"})
+    assert "__interrupt__" in result1
+    assert "__interrupt__" in result2
+
+    # Both should be paused.
+    status1 = await mgr.get_session_status(s1["session_id"])
+    status2 = await mgr.get_session_status(s2["session_id"])
+    assert status1 == "paused"
+    assert status2 == "paused"
+
+    # Complete s1 only.
+    mgr.resume(s1["thread_id"], Command(resume="user reply"))
+
+    # s1 should be completed, s2 must stay paused.
+    status1 = await mgr.get_session_status(s1["session_id"])
+    status2 = await mgr.get_session_status(s2["session_id"])
+    assert status1 == "completed"
+    assert status2 == "paused"
+
+    GRAPH_REGISTRY.pop(_TEST_GRAPH_ID, None)
+    if original is not None:
+        GRAPH_REGISTRY[_TEST_GRAPH_ID] = original
+
+
 # ---------------------------------------------------------------------------
 # Delete removes both checkpoint and DB record
 # ---------------------------------------------------------------------------

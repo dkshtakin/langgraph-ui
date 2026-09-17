@@ -32,7 +32,6 @@ from langgraph.types import Command
 from backend import GRAPH_REGISTRY, get_graph_name
 from backend.persistence import (
     _create_tables as _ensure_sessions_table,
-    has_resume_write,
 )
 
 logger = logging.getLogger(__name__)
@@ -321,15 +320,19 @@ class SessionManager:
         if tuple_result is None:
             return "running"
 
-        # For SQLite-backed checkers, look for __resume__ writes to decide.
-        conn = self._maybe_with_db()
-        if conn is not None:
-            try:
-                has_resume = has_resume_write(conn, thread_id)
-                return "completed" if has_resume else "paused"
-            except Exception as exc:
-                logger.warning("Status check failed for %s: %s", session_id, exc)
-                return "completed"  # fallback
+        # Determine status from pending_writes on the latest checkpoint.
+        # When paused at an interrupt, pending_writes contains '__interrupt__';
+        # when completed (or in-flight with no interrupt), it is empty or lacks it.
+        pending = tuple_result.pending_writes
+        if pending:
+            # Normalize to a list of (task_id, channel, value) tuples — some
+            # checkpointer implementations may return a dict instead.
+            if isinstance(pending, dict):
+                channels = set(pending.keys())
+            else:
+                channels = {w[1] for w in pending}
+            if "__interrupt__" in channels and "__resume__" not in channels:
+                return "paused"
 
-        # In-memory checkpointer — if there's checkpoint history assume completed.
+        # In-memory or SQLite checkpointer — no pending writes means completed.
         return "completed"
