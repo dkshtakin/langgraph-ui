@@ -14,10 +14,16 @@
 .app-layout {
   display: flex;
   flex-direction: row;
-  height: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  min-height: 100vh;
   background: var(--bg);
+}
+
+.main-wrapper {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -59,16 +65,12 @@
   margin-bottom: 2px;
 }
 
-.session-item-active .session-title {
-  font-weight: 600;
-  color: var(--accent);
-}
-
 .session-item-click {
   width: 100%;
   display: flex;
   align-items: center;
   padding: 7px 8px;
+  padding-right: 32px;
   background: transparent;
   border: none;
   border-radius: 6px;
@@ -77,6 +79,11 @@
   font-size: 0.875rem;
   color: var(--text);
   line-height: 1.4;
+}
+
+.session-item-active .session-title {
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .session-item-click:hover {
@@ -103,29 +110,66 @@
   outline: none;
 }
 
-.session-menu {
+.session-dots-btn {
   position: absolute;
   right: 4px;
   top: 50%;
   transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
   display: flex;
-  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.session-dots-btn:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.session-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
   z-index: 10;
   overflow: hidden;
+  min-width: 160px;
 }
 
 .session-menu-btn {
-  padding: 4px 8px;
-  font-size: 0.75rem;
+  padding: 9px 14px;
+  font-size: 0.875rem;
   background: transparent;
   border: none;
   cursor: pointer;
   color: var(--text);
+  text-align: left;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-menu-btn:first-child {
+  border-radius: 10px 10px 4px 4px;
+}
+
+.session-menu-btn:last-child {
+  border-radius: 4px 4px 10px 10px;
 }
 
 .session-menu-btn:hover {
@@ -136,12 +180,18 @@
   color: #dc2626;
 }
 
+.session-menu-btn-danger:hover {
+  background: #fef2f2;
+}
+
 .main-content {
-  flex: 1;
+  width: 100%;
+  max-width: 1200px;
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  flex: 1;
 }
 
 .app-header {

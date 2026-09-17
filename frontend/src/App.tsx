@@ -229,42 +229,45 @@ export default function App() {
         sessions={sessions}
         activeSessionId={session?.session_id ?? null}
         onSelect={(id) => switchSession(id || null)}
+        onRefresh={refreshSessions}
       />
 
-      <div className="main-content">
-        <header className="app-header">
-          <h1>Book Planner</h1>
-          {!session && (
-            <button className="new-chat-btn" onClick={startNewSession}>
-              New Chat
-            </button>
-          )}
-        </header>
+      <div className="main-wrapper">
+        <div className="main-content">
+          <header className="app-header">
+            <h1>Book Planner</h1>
+            {!session && (
+              <button className="new-chat-btn" onClick={startNewSession}>
+                New Chat
+              </button>
+            )}
+          </header>
 
-        {session ? (
-          <>
-            <ChatView
-              messages={messages}
-              streamingText={liveStream?.text ?? ''}
-              reasoningText={liveStream?.reasoning ?? ''}
-              streamingToolCalls={liveStream?.toolCalls}
-              streamState={liveStream?.state ?? 'idle'}
-            />
-            <InputBar
-              streamState={liveStream?.state ?? 'idle'}
-              disabled={session?.status === 'completed'}
-              onSend={handleSend}
-              onNewChat={startNewSession}
-            />
-          </>
-        ) : (
-          <div className="empty-state">
-            <p>Start a new chat to begin.</p>
-            <button className="new-chat-btn" onClick={startNewSession}>
-              New Chat
-            </button>
-          </div>
-        )}
+          {session ? (
+            <>
+              <ChatView
+                messages={messages}
+                streamingText={liveStream?.text ?? ''}
+                reasoningText={liveStream?.reasoning ?? ''}
+                streamingToolCalls={liveStream?.toolCalls}
+                streamState={liveStream?.state ?? 'idle'}
+              />
+              <InputBar
+                streamState={liveStream?.state ?? 'idle'}
+                disabled={session?.status === 'completed'}
+                onSend={handleSend}
+                onNewChat={startNewSession}
+              />
+            </>
+          ) : (
+            <div className="empty-state">
+              <p>Start a new chat to begin.</p>
+              <button className="new-chat-btn" onClick={startNewSession}>
+                New Chat
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

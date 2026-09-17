@@ -6,11 +6,10 @@ interface SidebarProps {
   sessions: Session[]
   activeSessionId: string | null
   onSelect: (sessionId: string) => void
+  onRefresh: () => void
 }
 
-export default function Sidebar({ sessions, activeSessionId, onSelect }: SidebarProps) {
-  const [renamingId, setRenamingId] = useState<string | null>(null)
-
+export default function Sidebar({ sessions, activeSessionId, onSelect, onRefresh }: SidebarProps) {
   const handleRename = useCallback(
     async (sessionId: string, newTitle: string) => {
       try {
@@ -29,11 +28,12 @@ export default function Sidebar({ sessions, activeSessionId, onSelect }: Sidebar
       } catch {
         // If the active session was deleted, App will fall back gracefully.
       }
+      onRefresh()
       if (activeSessionId === sessionId) {
         onSelect('')
       }
     },
-    [activeSessionId, onSelect],
+    [activeSessionId, onSelect, onRefresh],
   )
 
   if (sessions.length === 0) {

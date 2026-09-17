@@ -28,6 +28,8 @@ from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel
 
+from backend import GRAPH_REGISTRY, get_graph_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -210,6 +212,14 @@ def create_router(
             raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found")
 
         thread_id = session["thread_id"]
+
+        # Lazy-compile the graph if it hasn't been created yet (restored session).
+        if "graph" not in session:
+            compiled_graph = GRAPH_REGISTRY[session["graph_id"]]
+            session["graph"] = compiled_graph.builder.compile(
+                checkpointer=mgr._checkpointer
+            )
+
         graph = session["graph"]
         config = {"configurable": {"thread_id": thread_id}}
 
@@ -269,6 +279,14 @@ def create_router(
             raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found")
 
         thread_id = session["thread_id"]
+
+        # Lazy-compile the graph if it hasn't been created yet (restored session).
+        if "graph" not in session:
+            compiled_graph = GRAPH_REGISTRY[session["graph_id"]]
+            session["graph"] = compiled_graph.builder.compile(
+                checkpointer=mgr._checkpointer
+            )
+
         graph = session["graph"]
         config = {"configurable": {"thread_id": thread_id}}
 
