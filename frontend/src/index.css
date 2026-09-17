@@ -9,31 +9,34 @@
   --reasoning-bg: #f0f0f0;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
+  --max-content-width: 900px;
 }
 
 .app-layout {
   display: flex;
   flex-direction: row;
   width: 100%;
-  min-height: 100vh;
+  height: 100vh;
   background: var(--bg);
 }
 
 .main-wrapper {
   flex: 1;
   display: flex;
-  justify-content: center;
-  overflow: hidden;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .sidebar {
   width: 240px;
   min-width: 240px;
+  height: 100vh;
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  position: sticky;
+  top: 0;
 }
 
 .sidebar-title {
@@ -184,15 +187,6 @@
   background: #fef2f2;
 }
 
-.main-content {
-  width: 100%;
-  max-width: 1200px;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  flex: 1;
-}
 
 .app-header {
   display: flex;
@@ -201,6 +195,9 @@
   padding: 16px 24px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .app-header h1 {
@@ -236,8 +233,18 @@
 
 .chat-view {
   flex: 1;
-  overflow-y: auto;
   padding: 24px;
+  min-height: 0;
+}
+
+.main-content {
+  width: 100%;
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
 }
 
 .messages-list {
@@ -259,8 +266,7 @@
 
 .msg-bubble {
   padding: 10px 14px;
-  border-radius: 12px;
-  max-width: 80%;
+  border-radius: 18px;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -268,12 +274,13 @@
 
 .user-bubble {
   background: var(--user-bubble);
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 8px;
+  max-width: 100%;
 }
 
 .answer-bubble {
   background: var(--assistant-bubble);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 8px;
 }
 
 .error-bubble {
@@ -297,7 +304,7 @@
 .reasoning-block {
   margin-top: 8px;
   width: 100%;
-  max-width: 600px;
+  max-width: var(--max-content-width);
 }
 
 .reasoning-summary {
@@ -311,7 +318,7 @@
 .reasoning-content {
   background: var(--reasoning-bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 14px;
   padding: 10px 14px;
   font-size: 0.875rem;
   color: var(--muted);
@@ -322,31 +329,54 @@
 }
 
 .input-bar {
-  padding: 16px 24px;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  padding: 14px 24px;
+  background: transparent;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  z-index: 10;
 }
 
-.input-row {
+.empty-state {
+  flex: 1;
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--muted);
+  min-height: 400px;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 25px;
+  overflow: hidden;
+  padding: 6px 20px 6px 14px;
 }
 
 .chat-input {
   flex: 1;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 14px 0 14px 18px;
+  border: none;
+  background: transparent;
   font-size: 1rem;
   outline: none;
-  background: var(--bg);
+  color: var(--text);
+  min-width: 0;
+}
+
+.chat-input::placeholder {
+  color: var(--muted);
 }
 
 .chat-input:focus {
-  border-color: var(--accent);
+  outline: none;
 }
 
 .chat-input:disabled {
@@ -355,22 +385,30 @@
 }
 
 .send-btn {
-  padding: 10px 20px;
-  background: var(--accent);
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #d1d5db;
   color: white;
   border: none;
-  border-radius: 8px;
   cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
+  transition: background 0.15s ease;
+  margin-left: 8px;
 }
 
-.send-btn:hover:not(:disabled) {
+.send-btn-active {
+  background: var(--accent);
+}
+
+.send-btn-active:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
 .send-btn:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -382,7 +420,7 @@
   gap: 8px;
   margin-top: 8px;
   width: 100%;
-  max-width: 600px;
+  max-width: var(--max-content-width);
 }
 
 .tool-call-block {

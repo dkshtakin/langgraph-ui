@@ -37,9 +37,11 @@ export default function InputBar({ streamState, disabled, onSend, onNewChat }: I
   const isInterrupted = streamState === 'interrupted'
   const isDone = streamState === 'done'
 
-  let placeholder = 'Введите сообщение…'
-  if (isInterrupted) placeholder = 'Введите ваш ответ…'
-  else if (isStreaming || isInitializing) placeholder = 'Запуск графа…'
+  let placeholder = 'Введите сообщение'
+  if (isInterrupted) placeholder = 'Введите ваш ответ'
+  else if (isStreaming || isInitializing) placeholder = 'Запуск графа'
+
+  const sendable = !disabled && !isStreaming && !isInitializing && inputValue.trim().length > 0
 
   return (
     <div className="input-bar">
@@ -48,7 +50,7 @@ export default function InputBar({ streamState, disabled, onSend, onNewChat }: I
           New Chat
         </button>
       )}
-      <div className="input-row">
+      <div className="input-wrapper">
         <input
           ref={inputRef}
           type="text"
@@ -60,12 +62,14 @@ export default function InputBar({ streamState, disabled, onSend, onNewChat }: I
           className="chat-input"
         />
         <button
-          className="send-btn"
+          className={`send-btn${sendable ? ' send-btn-active' : ''}`}
           onClick={handleSubmit}
-          disabled={disabled || isStreaming || isInitializing || !inputValue.trim()}
+          disabled={!sendable}
           title="Send"
         >
-          Send
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 12V3m0 0l-3.5 3.5M8 3l3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </button>
       </div>
     </div>
