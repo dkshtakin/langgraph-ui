@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
 import MessageBlock from './MessageBlock'
+import ReasoningBlock from './ReasoningBlock'
 import { ToolCallList } from './ToolCallBlock'
 import type { StreamState, ToolCallEvent } from '../types'
 
@@ -39,10 +40,7 @@ export default function ChatView({ messages, streamingText, reasoningText, strea
         {(hasLiveStream && (streamingText || reasoningText || streamingToolCalls?.length)) && (
           <div className="msg-assistant live-stream">
             {reasoningText && (
-              <details className="reasoning-block" open={true}>
-                <summary className="reasoning-summary">Reasoning</summary>
-                <div className="reasoning-content" dangerouslySetInnerHTML={{ __html: formatMarkdown(reasoningText) }} />
-              </details>
+              <ReasoningBlock text={reasoningText} />
             )}
             {streamingToolCalls && streamingToolCalls.length > 0 && (
               <ToolCallList calls={streamingToolCalls} />

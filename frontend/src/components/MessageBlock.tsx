@@ -1,4 +1,5 @@
 import { ToolCallList } from './ToolCallBlock'
+import ReasoningBlock from './ReasoningBlock'
 import type { ToolCallEvent } from '../types'
 
 interface MessageBlockProps {
@@ -30,10 +31,7 @@ export default function MessageBlock({ role, text, reasoning, toolCalls }: Messa
   return (
     <div className="msg-assistant">
       {reasoning && (
-        <details className="reasoning-block" open={true}>
-          <summary className="reasoning-summary">Reasoning</summary>
-          <div className="reasoning-content" dangerouslySetInnerHTML={{ __html: formatMarkdown(reasoning) }} />
-        </details>
+        <ReasoningBlock text={reasoning} />
       )}
       {toolCalls && toolCalls.length > 0 && (
         <ToolCallList calls={toolCalls} />
@@ -48,9 +46,6 @@ export default function MessageBlock({ role, text, reasoning, toolCalls }: Messa
   )
 }
 
-/**
- * Minimal markdown formatting — newlines to <br>, basic safety.
- */
 function formatMarkdown(text: string): string {
   return text
     .replace(/&/g, '&amp;')

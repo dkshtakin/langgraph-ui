@@ -315,7 +315,16 @@
   user-select: none;
 }
 
+.reasoning-content-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.3s ease-in-out;
+}
+.reasoning-content-wrap.collapsed {
+  grid-template-rows: 0fr;
+}
 .reasoning-content {
+  overflow: hidden;
   background: var(--reasoning-bg);
   border: 1px solid var(--border);
   border-radius: 14px;
