@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import ChatView from './components/ChatView'
+import GraphSwitcher from './components/GraphSwitcher'
 import InputBar from './components/InputBar'
 import Sidebar from './components/Sidebar'
-import { createSession, getMessages, getSessions, type SerializedMessage, type Session } from './api/client'
+import { createSession, getGraphs, getMessages, getSessions, type GraphInfo, type SerializedMessage, type Session } from './api/client'
 import { streamResume, SseCallbacks } from './api/sseClient'
 import type { ChatMessage } from './components/ChatView'
 
@@ -24,12 +25,15 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [nextId, setNextId] = useState(1)
   const [liveStream, setLiveStream] = useState<LiveStream | null>(null)
+  const [graphs, setGraphs] = useState<GraphInfo[]>([])
+  const [currentGraphId, setCurrentGraphId] = useState('book_planner')
 
   const abortRef = useRef<AbortController | null>(null)
 
-  // Load session list on mount.
+  // Load session list and graphs on mount.
   useEffect(() => {
     getSessions().then(setSessions).catch(console.error)
+    getGraphs().then(setGraphs).catch(console.error)
   }, [])
 
   const refreshSessions = useCallback(async () => {
@@ -47,8 +51,18 @@ export default function App() {
     setMessages([])
     setLiveStream(null)
 
-    const nextSession = sessionId ? sessions.find((s) => s.session_id === sessionId) ?? null : null
+    let nextSession: Session | null = sessionId ? sessions.find((s) => s.session_id === sessionId) ?? null : null
+    if (nextSession) {
+      try {
+        const freshList = await getSessions()
+        nextSession = freshList.find((s) => s.session_id === sessionId) ?? null
+        setSessions(freshList)
+      } catch {
+        // Fallback to local list.
+      }
+    }
     setSession(nextSession)
+    setCurrentGraphId(nextSession?.graph_id ?? 'book_planner')
 
     if (nextSession) {
       try {
@@ -67,12 +81,12 @@ export default function App() {
     }
   }, [sessions])
 
-  const startNewSession = useCallback(async () => {
+  const startNewSession = useCallback(async (graphId?: string) => {
     abortRef.current?.abort()
     abortRef.current = null
     setMessages([])
     setLiveStream(null)
-    const s = await createSession('book_planner')
+    const s = await createSession(graphId ?? currentGraphId)
     setSession(s)
     setSessions((prev) => [s, ...prev])
 
@@ -118,6 +132,12 @@ export default function App() {
         // Persist the initialization output as a message so it stays visible.
         setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning, toolCalls: initToolCalls }])
         setLiveStream(null)
+        getSessions().then((list) => {
+          setSessions(list)
+          if (session && list.find((s) => s.session_id === session.session_id)) {
+            setSession(list.find((s) => s.session_id === session.session_id) ?? null)
+          }
+        }).catch(console.error)
       },
       onError: (detail) => {
         console.error('[App] init stream error:', detail)
@@ -128,7 +148,7 @@ export default function App() {
       },
     })
     abortRef.current = controller
-  }, [nextId])
+  }, [nextId, currentGraphId])
 
   const handleSend = useCallback((message: string) => {
     if (!session) return
@@ -193,6 +213,12 @@ export default function App() {
           ),
         )
         setLiveStream(null)
+        getSessions().then((list) => {
+          setSessions(list)
+          if (session && list.find((s) => s.session_id === session.session_id)) {
+            setSession(list.find((s) => s.session_id === session.session_id) ?? null)
+          }
+        }).catch(console.error)
       },
       onError: (detail) => {
         // Show the real error message so the user can understand what went wrong.
@@ -235,12 +261,13 @@ export default function App() {
       <div className="main-wrapper">
         <div className="main-content">
           <header className="app-header">
-            <h1>Book Planner</h1>
-            {!session && (
-              <button className="new-chat-btn" onClick={startNewSession}>
-                New Chat
-              </button>
-            )}
+            <GraphSwitcher
+              currentGraphId={currentGraphId}
+              sessionStatus={session?.status}
+              streamState={liveStream?.state}
+              graphs={graphs}
+              onSelect={(id) => { setCurrentGraphId(id); startNewSession(id) }}
+            />
           </header>
 
           {session ? (
@@ -262,7 +289,7 @@ export default function App() {
           ) : (
             <div className="empty-state">
               <p>Start a new chat to begin.</p>
-              <button className="new-chat-btn" onClick={startNewSession}>
+              <button className="new-chat-btn" onClick={() => startNewSession()}>
                 New Chat
               </button>
             </div>

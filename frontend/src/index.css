@@ -25,6 +25,7 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .sidebar {
@@ -191,10 +192,8 @@
 .app-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   padding: 16px 24px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -419,6 +418,107 @@
 
 .send-btn:disabled {
   cursor: not-allowed;
+}
+
+/* ── GraphSwitcher ────────────────────────────────────────────────── */
+
+.graph-switcher {
+  position: relative;
+}
+
+.graph-switcher-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text);
+  line-height: 1;
+}
+
+.graph-switcher-btn:hover {
+  background: #f9f9f9;
+}
+
+.graph-switcher-label {
+  font-weight: 500;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-switcher-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-completed {
+  background: #16a34a;
+}
+
+.dot-streaming {
+  background: #f59e0b;
+}
+
+.dot-paused,
+.dot-idle {
+  background: #9ca3af;
+}
+
+.graph-switcher-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 20;
+  min-width: 160px;
+  animation: graph-dropdown-in 0.15s ease;
+}
+
+@keyframes graph-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.graph-switcher-item {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.graph-switcher-item:hover {
+  background: var(--bg);
+}
+
+.graph-switcher-item-active {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ── Tool call blocks ─────────────────────────────────────────────── */

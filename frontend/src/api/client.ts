@@ -42,6 +42,20 @@ export async function renameSession(sessionId: string, title: string): Promise<S
   return res.json() as Promise<Session>
 }
 
+export interface GraphInfo {
+  id: string
+  name: string
+}
+
+export async function getGraphs(): Promise<GraphInfo[]> {
+  const res = await fetch('/api/graphs')
+  if (!res.ok) {
+    throw new Error(`Failed to list graphs: ${res.status} ${res.statusText}`)
+  }
+  const body = (await res.json()) as { graphs: Record<string, { name: string }> }
+  return Object.entries(body.graphs).map(([id, g]) => ({ id, name: g.name }))
+}
+
 export async function deleteSession(sessionId: string): Promise<void> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
