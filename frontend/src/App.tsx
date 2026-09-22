@@ -6,16 +6,13 @@ import InputBar from './components/InputBar'
 import Sidebar from './components/Sidebar'
 import { createSession, getGraphs, getMessages, getSessions, type GraphInfo, type SerializedMessage, type Session } from './api/client'
 import { streamResume, SseCallbacks } from './api/sseClient'
-import type { ChatMessage } from './components/ChatView'
+import { appendChunk, appendToolCall, historyParts } from './messageStream'
 
-import type { StreamState, ToolCallEvent } from './types'
+import type { AssistantMessage, ChatMessage, StreamState } from './types'
 
 interface LiveStream {
   sessionId: string
-  assistantMsgId: string
-  text: string
-  reasoning: string
-  toolCalls: ToolCallEvent[]
+  messages: AssistantMessage[]
   state: StreamState
 }
 
@@ -29,6 +26,11 @@ export default function App() {
   const [currentGraphId, setCurrentGraphId] = useState('book_planner')
 
   const abortRef = useRef<AbortController | null>(null)
+  const liveIdRef = useRef(0)
+
+  // Live messages need stable ids so React can reconcile them; they keep these
+  // ids once the stream finalises and they join the feed.
+  const nextLiveId = () => `live-${++liveIdRef.current}`
 
   // Load session list and graphs on mount.
   useEffect(() => {
@@ -67,13 +69,15 @@ export default function App() {
     if (nextSession) {
       try {
         const raw = await getMessages(nextSession.session_id)
-        const mapped: ChatMessage[] = raw.map((m, i) => ({
-          id: `msg-${i}`,
-          role: m.role as 'user' | 'assistant',
-          text: m.text ?? '',
-          reasoning: m.reasoning ?? undefined,
-          toolCalls: m.toolCalls ?? undefined,
-        }))
+        // Tool results are not shown anywhere in the feed — drop them entirely.
+        const mapped: ChatMessage[] = raw
+          .filter((m) => m.role !== 'tool')
+          .map((m, i): ChatMessage => {
+            if (m.role === 'user' || m.role === 'system') {
+              return { id: `msg-${i}`, role: m.role, text: m.text ?? '' }
+            }
+            return { id: `msg-${i}`, role: 'assistant', parts: historyParts(m) }
+          })
         setMessages(mapped)
       } catch {
         console.error('[App] failed to load messages for session', nextSession.session_id)
@@ -93,44 +97,30 @@ export default function App() {
     // Kick off the graph immediately — fresh sessions have no history, so
     // passing an empty text lets the graph self-initialise and then pause at
     // its first interrupt (or finish if there is no user-input branch).
-    const initId = `assistant-init-${nextId}`
-    setNextId((n) => n + 1)
+    let initMessages: AssistantMessage[] = []
+    setLiveStream({ sessionId: s.session_id, messages: [], state: 'initializing' })
 
-    let initState: StreamState = 'initializing'
-    let initText = ''
-    let initReasoning = ''
-    let initToolCalls: ToolCallEvent[] = []
-    setLiveStream({ sessionId: s.session_id, assistantMsgId: initId, text: '', reasoning: '', toolCalls: [], state: initState })
+    const pushInit = () => {
+      flushSync(() => setLiveStream((prev) => (prev ? { ...prev, messages: initMessages } : prev)))
+    }
 
     const controller = streamResume(s.session_id, '', {
       onChunk: (type, content) => {
-        if (type === 'answer') {
-          initText += content
-        } else {
-          initReasoning += content
-        }
-        flushSync(() =>
-          setLiveStream((prev) =>
-            prev ? { ...prev, text: initText, reasoning: initReasoning } : prev,
-          ),
-        )
+        initMessages = appendChunk(initMessages, type === 'answer' ? 'text' : 'reasoning', content, nextLiveId())
+        pushInit()
       },
       onToolCall: (call) => {
-        initToolCalls = [...initToolCalls, call]
-        flushSync(() =>
-          setLiveStream((prev) =>
-            prev ? { ...prev, toolCalls: initToolCalls } : prev,
-          ),
-        )
+        initMessages = appendToolCall(initMessages, call, nextLiveId())
+        pushInit()
       },
       onInterrupt: () => {
-        // Persist the initialization output as a message so it stays visible.
-        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning, toolCalls: initToolCalls }])
+        // Persist the initialization output so it stays visible.
+        setMessages((prev) => [...prev, ...initMessages])
         setLiveStream(null)
       },
       onDone: () => {
-        // Persist the initialization output as a message so it stays visible.
-        setMessages((prev) => [...prev, { id: initId, role: 'assistant', text: initText, reasoning: initReasoning, toolCalls: initToolCalls }])
+        // Persist the initialization output so it stays visible.
+        setMessages((prev) => [...prev, ...initMessages])
         setLiveStream(null)
         getSessions().then((list) => {
           setSessions(list)
@@ -148,70 +138,42 @@ export default function App() {
       },
     })
     abortRef.current = controller
-  }, [nextId, currentGraphId])
+  }, [currentGraphId])
 
   const handleSend = useCallback((message: string) => {
     if (!session) return
 
-    const assistantMsgId = `assistant-${nextId}`
-    setNextId((n) => n + 1)
-
-    setMessages((prev) => [
-      ...prev,
-      { id: `user-${nextId}`, role: 'user', text: message },
-      { id: assistantMsgId, role: 'assistant', text: '', reasoning: '' },
-    ])
+    setMessages((prev) => [...prev, { id: `user-${nextId}`, role: 'user', text: message }])
     setNextId((n) => n + 1)
 
     abortRef.current?.abort()
     abortRef.current = null
 
-    let accumulatedText = ''
-    let accumulatedReasoning = ''
-    let accumulatedToolCalls: ToolCallEvent[] = []
+    let liveMessages: AssistantMessage[] = []
     let state: StreamState = 'streaming'
+
+    const pushLive = () => {
+      flushSync(() => setLiveStream({ sessionId: session.session_id, messages: liveMessages, state }))
+    }
 
     const callbacks: SseCallbacks = {
       onChunk: (type, content) => {
-        if (type === 'answer') {
-          accumulatedText += content
-        } else {
-          accumulatedReasoning += content
-        }
-        flushSync(() =>
-          setLiveStream({ sessionId: session.session_id, assistantMsgId, text: accumulatedText, reasoning: accumulatedReasoning, toolCalls: accumulatedToolCalls, state }),
-        )
+        liveMessages = appendChunk(liveMessages, type === 'answer' ? 'text' : 'reasoning', content, nextLiveId())
+        pushLive()
       },
       onToolCall: (call) => {
-        accumulatedToolCalls = [...accumulatedToolCalls, call]
-        flushSync(() =>
-          setLiveStream((prev) =>
-            prev ? { ...prev, toolCalls: accumulatedToolCalls } : prev,
-          ),
-        )
+        liveMessages = appendToolCall(liveMessages, call, nextLiveId())
+        pushLive()
       },
       onInterrupt: () => {
         state = 'interrupted'
-        // Finalise the message with what we have so far
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsgId
-              ? { ...m, text: accumulatedText, reasoning: accumulatedReasoning, toolCalls: accumulatedToolCalls }
-              : m,
-          ),
-        )
+        // The live messages join the feed as they are.
+        setMessages((prev) => [...prev, ...liveMessages])
         setLiveStream(null)
       },
       onDone: () => {
         state = 'done'
-        // Finalise the message
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsgId
-              ? { ...m, text: accumulatedText, reasoning: accumulatedReasoning, toolCalls: accumulatedToolCalls }
-              : m,
-          ),
-        )
+        setMessages((prev) => [...prev, ...liveMessages])
         setLiveStream(null)
         getSessions().then((list) => {
           setSessions(list)
@@ -224,13 +186,11 @@ export default function App() {
         // Show the real error message so the user can understand what went wrong.
         console.error('[App] stream error:', detail, 'type:', typeof detail)
         state = 'idle'
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsgId
-              ? { ...m, text: `⚠️ Ошибка:\n${detail}`, reasoning: '' }
-              : m,
-          ),
-        )
+        // The error replaces the turn's output, as it always has.
+        setMessages((prev) => [
+          ...prev,
+          { id: nextLiveId(), role: 'assistant', parts: [{ kind: 'text', text: `⚠️ Ошибка:\n${detail}` }] },
+        ])
         setLiveStream(null)
       },
       onComplete: () => {
@@ -274,9 +234,7 @@ export default function App() {
             <>
               <ChatView
                 messages={messages}
-                streamingText={liveStream?.text ?? ''}
-                reasoningText={liveStream?.reasoning ?? ''}
-                streamingToolCalls={liveStream?.toolCalls}
+                streamingMessages={liveStream?.messages ?? []}
                 streamState={liveStream?.state ?? 'idle'}
               />
               <InputBar

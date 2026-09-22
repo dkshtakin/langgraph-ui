@@ -615,6 +615,31 @@
   padding: 6px 12px;
   background: rgba(0, 0, 0, 0.04);
   border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-call-block.collapsed .tool-call-header {
+  border-bottom: none;
+}
+
+.tool-call-content-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.3s ease-in-out;
+}
+.tool-call-block.collapsed .tool-call-content-wrap {
+  grid-template-rows: 0fr;
+}
+
+.tool-call-content {
+  overflow: hidden;
+}
+
+.tool-call-args-label {
+  padding: 8px 12px 0;
+  font-size: 0.7rem;
+  color: var(--muted);
 }
 
 .tool-call-name {
@@ -636,11 +661,16 @@
 
 .tool-call-args {
   margin: 0;
-  padding: 8px 12px;
+  padding: 4px 12px 10px;
   font-size: 0.75rem;
   font-family: ui-monospace, monospace;
   color: var(--muted);
   white-space: pre-wrap;
   word-break: break-all;
-  border-top: 1px solid var(--border);
+}
+
+.tool-call-no-args {
+  padding: 4px 12px 10px;
+  font-size: 0.75rem;
+  color: #b0b0b0;
 }
