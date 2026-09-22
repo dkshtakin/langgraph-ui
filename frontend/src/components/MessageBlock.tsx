@@ -1,5 +1,6 @@
 import { ToolCallList } from './ToolCallBlock'
 import ReasoningBlock from './ReasoningBlock'
+import { formatMarkdown } from '../markdown'
 import type { ChatMessage, MessagePart } from '../types'
 
 export default function MessageBlock(message: ChatMessage) {
@@ -51,12 +52,4 @@ function Part({ part }: { part: MessagePart }) {
       dangerouslySetInnerHTML={{ __html: formatMarkdown(part.text) }}
     />
   )
-}
-
-function formatMarkdown(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .split('\n').join('<br />')
 }

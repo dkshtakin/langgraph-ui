@@ -20,12 +20,12 @@ function ToolCallBlock({ call }: ToolCallBlockProps) {
   const args = stringifyArgs(call.args)
 
   return (
-    <div className={`tool-call-block ${call.invalid ? 'tool-call-invalid' : 'tool-call-valid'} ${collapsed ? 'collapsed' : ''}`}>
+    <div className={`tool-call-block ${call.invalid ? 'tool-call-invalid' : 'tool-call-valid'}`}>
       <div className="tool-call-header" onClick={() => setCollapsed((c) => !c)}>
         <span className="tool-call-name">{call.name}</span>
         {call.invalid && <span className="tool-call-badge invalid">invalid</span>}
       </div>
-      <div className="tool-call-content-wrap">
+      <div className={`tool-call-content-wrap ${collapsed ? 'collapsed' : ''}`}>
         <div className="tool-call-content">
           <div className="tool-call-args-label">Аргументы</div>
           {args

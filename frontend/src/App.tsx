@@ -4,14 +4,13 @@ import ChatView from './components/ChatView'
 import GraphSwitcher from './components/GraphSwitcher'
 import InputBar from './components/InputBar'
 import Sidebar from './components/Sidebar'
-import { createSession, getGraphs, getMessages, getSessions, type GraphInfo, type SerializedMessage, type Session } from './api/client'
+import { createSession, getGraphs, getMessages, getSessions, type GraphInfo, type Session } from './api/client'
 import { streamResume, SseCallbacks } from './api/sseClient'
-import { appendChunk, appendToolCall, historyParts } from './messageStream'
+import { appendChunk, appendToolCall, historyParts } from './messageParts'
 
-import type { AssistantMessage, ChatMessage, StreamState } from './types'
+import type { AssistantMessage, ChatMessage, StreamState, ToolCallEvent } from './types'
 
 interface LiveStream {
-  sessionId: string
   messages: AssistantMessage[]
   state: StreamState
 }
@@ -30,7 +29,35 @@ export default function App() {
 
   // Live messages need stable ids so React can reconcile them; they keep these
   // ids once the stream finalises and they join the feed.
-  const nextLiveId = () => `live-${++liveIdRef.current}`
+  const nextLiveId = useCallback(() => `live-${++liveIdRef.current}`, [])
+
+  /**
+   * Wire SSE events into a growing list of live assistant messages. Starting a
+   * fresh session and replying to a user message accumulate the same way, so
+   * both share this.
+   */
+  const startLiveTurn = useCallback((initialState: StreamState) => {
+    let messages: AssistantMessage[] = []
+    setLiveStream({ messages, state: initialState })
+
+    const push = () => {
+      flushSync(() => setLiveStream((prev) => (prev ? { ...prev, messages } : prev)))
+    }
+
+    return {
+      readMessages: () => messages,
+      callbacks: {
+        onChunk: (type: 'answer' | 'reasoning', content: string) => {
+          messages = appendChunk(messages, type === 'answer' ? 'text' : 'reasoning', content, nextLiveId())
+          push()
+        },
+        onToolCall: (call: ToolCallEvent) => {
+          messages = appendToolCall(messages, call, nextLiveId())
+          push()
+        },
+      },
+    }
+  }, [nextLiveId])
 
   // Load session list and graphs on mount.
   useEffect(() => {
@@ -97,30 +124,18 @@ export default function App() {
     // Kick off the graph immediately — fresh sessions have no history, so
     // passing an empty text lets the graph self-initialise and then pause at
     // its first interrupt (or finish if there is no user-input branch).
-    let initMessages: AssistantMessage[] = []
-    setLiveStream({ sessionId: s.session_id, messages: [], state: 'initializing' })
-
-    const pushInit = () => {
-      flushSync(() => setLiveStream((prev) => (prev ? { ...prev, messages: initMessages } : prev)))
-    }
+    const turn = startLiveTurn('initializing')
 
     const controller = streamResume(s.session_id, '', {
-      onChunk: (type, content) => {
-        initMessages = appendChunk(initMessages, type === 'answer' ? 'text' : 'reasoning', content, nextLiveId())
-        pushInit()
-      },
-      onToolCall: (call) => {
-        initMessages = appendToolCall(initMessages, call, nextLiveId())
-        pushInit()
-      },
+      ...turn.callbacks,
       onInterrupt: () => {
         // Persist the initialization output so it stays visible.
-        setMessages((prev) => [...prev, ...initMessages])
+        setMessages((prev) => [...prev, ...turn.readMessages()])
         setLiveStream(null)
       },
       onDone: () => {
         // Persist the initialization output so it stays visible.
-        setMessages((prev) => [...prev, ...initMessages])
+        setMessages((prev) => [...prev, ...turn.readMessages()])
         setLiveStream(null)
         getSessions().then((list) => {
           setSessions(list)
@@ -138,7 +153,7 @@ export default function App() {
       },
     })
     abortRef.current = controller
-  }, [currentGraphId])
+  }, [currentGraphId, startLiveTurn])
 
   const handleSend = useCallback((message: string) => {
     if (!session) return
@@ -149,31 +164,17 @@ export default function App() {
     abortRef.current?.abort()
     abortRef.current = null
 
-    let liveMessages: AssistantMessage[] = []
-    let state: StreamState = 'streaming'
-
-    const pushLive = () => {
-      flushSync(() => setLiveStream({ sessionId: session.session_id, messages: liveMessages, state }))
-    }
+    const turn = startLiveTurn('streaming')
 
     const callbacks: SseCallbacks = {
-      onChunk: (type, content) => {
-        liveMessages = appendChunk(liveMessages, type === 'answer' ? 'text' : 'reasoning', content, nextLiveId())
-        pushLive()
-      },
-      onToolCall: (call) => {
-        liveMessages = appendToolCall(liveMessages, call, nextLiveId())
-        pushLive()
-      },
+      ...turn.callbacks,
       onInterrupt: () => {
-        state = 'interrupted'
         // The live messages join the feed as they are.
-        setMessages((prev) => [...prev, ...liveMessages])
+        setMessages((prev) => [...prev, ...turn.readMessages()])
         setLiveStream(null)
       },
       onDone: () => {
-        state = 'done'
-        setMessages((prev) => [...prev, ...liveMessages])
+        setMessages((prev) => [...prev, ...turn.readMessages()])
         setLiveStream(null)
         getSessions().then((list) => {
           setSessions(list)
@@ -185,7 +186,6 @@ export default function App() {
       onError: (detail) => {
         // Show the real error message so the user can understand what went wrong.
         console.error('[App] stream error:', detail, 'type:', typeof detail)
-        state = 'idle'
         // The error replaces the turn's output, as it always has.
         setMessages((prev) => [
           ...prev,
@@ -200,7 +200,7 @@ export default function App() {
 
     const controller = streamResume(session.session_id, message, callbacks)
     abortRef.current = controller
-  }, [session, nextId])
+  }, [session, nextId, nextLiveId, startLiveTurn])
 
   // Abort on unmount
   useEffect(() => {

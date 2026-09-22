@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendChunk, appendToolCall } from './messageStream'
+import { appendChunk, appendToolCall, historyParts } from './messageParts'
 import type { AssistantMessage, MessagePart, ToolCallEvent } from './types'
 
 function toolCall(name: string): ToolCallEvent {
@@ -108,17 +108,77 @@ describe('tool call boundaries', () => {
   })
 })
 
-describe('a real turn from the checkpoint', () => {
-  it('splits reasoning → tool → reasoning → text into two messages', () => {
-    const messages = feed([
-      ['reasoning', '\nПользователь спрашивает, какой сегодня день. '],
-      ['reasoning', 'Мне нужно вызвать инструмент today_tool.'],
-      ['tool', 'today_tool'],
-      ['reasoning', '\nСегодня 18 сентября 2026 года. Нужно ответить пользователю.'],
-      ['text', '\n\nСегодня **18 сентября 2026 года**.'],
-    ])
-
+describe('whitespace-only text', () => {
+  it('drops a blank text part when a tool call closes the segment', () => {
+    const messages = feed([['reasoning', 'думаю'], ['text', '\n\n'], ['tool', 'today_tool']])
     expect(partsOf(messages)).toEqual([
+      [
+        { kind: 'reasoning', text: 'думаю' },
+        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
+      ],
+    ])
+  })
+
+  it('keeps a text part that carries anything but whitespace', () => {
+    const messages = feed([['reasoning', 'думаю'], ['text', '\n\nготово'], ['tool', 'today_tool']])
+    expect(partsOf(messages)).toEqual([
+      [
+        { kind: 'reasoning', text: 'думаю' },
+        { kind: 'text', text: '\n\nготово' },
+        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
+      ],
+    ])
+  })
+})
+
+describe('historyParts', () => {
+  it('skips a whitespace-only text', () => {
+    expect(historyParts({ role: 'assistant', text: '\n\n', reasoning: 'думаю', toolCalls: [toolCall('today_tool')] }))
+      .toEqual([
+        { kind: 'reasoning', text: 'думаю' },
+        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
+      ])
+  })
+
+  it('keeps the order reasoning → tool calls → text', () => {
+    expect(historyParts({ role: 'assistant', text: 'ответ', reasoning: 'думаю', toolCalls: [toolCall('a')] }))
+      .toEqual([
+        { kind: 'reasoning', text: 'думаю' },
+        { kind: 'tool_calls', calls: [toolCall('a')] },
+        { kind: 'text', text: 'ответ' },
+      ])
+  })
+})
+
+describe('a real turn from the checkpoint', () => {
+  // The stream emits a message's text block before its tool call, so the
+  // whitespace tail arrives ahead of the tool; history carries it after.
+  const streamed = feed([
+    ['reasoning', '\nПользователь спрашивает, какой сегодня день. '],
+    ['reasoning', 'Мне нужно вызвать инструмент today_tool.'],
+    ['text', '\n\n'],
+    ['tool', 'today_tool'],
+    ['reasoning', '\nСегодня 18 сентября 2026 года. Нужно ответить пользователю.'],
+    ['text', '\n\nСегодня **18 сентября 2026 года**.'],
+  ])
+
+  const history = [
+    {
+      role: 'assistant',
+      text: '\n\n',
+      reasoning: '\nПользователь спрашивает, какой сегодня день. Мне нужно вызвать инструмент today_tool.',
+      toolCalls: [toolCall('today_tool')],
+    },
+    {
+      role: 'assistant',
+      text: '\n\nСегодня **18 сентября 2026 года**.',
+      reasoning: '\nСегодня 18 сентября 2026 года. Нужно ответить пользователю.',
+      toolCalls: [],
+    },
+  ].map((m, i) => ({ id: `h${i}`, role: 'assistant' as const, parts: historyParts(m) }))
+
+  it('splits reasoning → tool → reasoning → text into two messages', () => {
+    expect(partsOf(streamed)).toEqual([
       [
         {
           kind: 'reasoning',
@@ -131,5 +191,9 @@ describe('a real turn from the checkpoint', () => {
         { kind: 'text', text: '\n\nСегодня **18 сентября 2026 года**.' },
       ],
     ])
+  })
+
+  it('gives the same parts as the history mapping', () => {
+    expect(partsOf(streamed)).toEqual(partsOf(history))
   })
 })

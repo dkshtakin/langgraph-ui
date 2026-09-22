@@ -614,13 +614,8 @@
   gap: 8px;
   padding: 6px 12px;
   background: rgba(0, 0, 0, 0.04);
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   user-select: none;
-}
-
-.tool-call-block.collapsed .tool-call-header {
-  border-bottom: none;
 }
 
 .tool-call-content-wrap {
@@ -628,12 +623,17 @@
   grid-template-rows: 1fr;
   transition: grid-template-rows 0.3s ease-in-out;
 }
-.tool-call-block.collapsed .tool-call-content-wrap {
+.tool-call-content-wrap.collapsed {
   grid-template-rows: 0fr;
 }
 
+/* The separator belongs to the collapsible region: it goes away with it. */
 .tool-call-content {
   overflow: hidden;
+  border-top: 1px solid var(--border);
+}
+.tool-call-content-wrap.collapsed .tool-call-content {
+  border-top-width: 0;
 }
 
 .tool-call-args-label {

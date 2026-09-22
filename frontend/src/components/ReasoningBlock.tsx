@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatMarkdown } from '../markdown'
 
 interface ReasoningBlockProps {
   text: string
@@ -20,12 +21,4 @@ export default function ReasoningBlock({ text }: ReasoningBlockProps) {
       </div>
     </div>
   )
-}
-
-function formatMarkdown(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .split('\n').join('<br />')
 }
