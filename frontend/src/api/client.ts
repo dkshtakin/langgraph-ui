@@ -20,7 +20,7 @@ export async function getSessions(): Promise<Session[]> {
   return body.sessions
 }
 
-export async function createSession(graphId = 'book_planner'): Promise<Session> {
+export async function createSession(graphId: string): Promise<Session> {
   const res = await fetch('/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

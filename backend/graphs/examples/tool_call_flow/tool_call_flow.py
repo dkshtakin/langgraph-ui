@@ -27,6 +27,9 @@ from backend.config.llm import chat
 from backend.config.tools import today_tool
 
 
+chat = chat.bind_tools([today_tool])
+
+
 # ---------------------------------------------------------------------------
 # Graph State
 # ---------------------------------------------------------------------------
@@ -88,5 +91,4 @@ def build() -> object:
 # Graph identity (for registry auto-discovery)
 # ---------------------------------------------------------------------------
 
-id: str = "tool_call_flow"
 name: str = "Tool Call Flow"

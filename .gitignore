@@ -9,3 +9,5 @@ __pycache__
 frontend/dist/
 backend/*.db*
 docs
+backend/graphs/user/*
+!backend/graphs/user/__init__.py

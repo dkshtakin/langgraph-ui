@@ -16,7 +16,7 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from backend.config.llm import chat
-from backend.graphs.common import FlowState, pause_node
+from backend.graphs.examples.common import FlowState, pause_node
 
 
 # ---------------------------------------------------------------------------
@@ -60,5 +60,4 @@ def build() -> object:
 # Graph identity (for registry auto-discovery)
 # ---------------------------------------------------------------------------
 
-id: str = "llm_flow"
 name: str = "LLM Flow"

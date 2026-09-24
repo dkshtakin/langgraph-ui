@@ -63,7 +63,7 @@ def client():
     """Return a TestClient with the router and test graph pre-loaded."""
     global _shared_mgr
 
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
     from backend.session_manager import SessionManager
 
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph
@@ -108,9 +108,9 @@ def test_get_graphs_has_name_per_entry(graphs):
 
 
 def test_get_graphs_contains_registered(graphs):
-    """The graphs dict includes at least book_planner."""
-    assert "book_planner" in graphs
-    assert graphs["book_planner"]["name"] == "Book Planner"
+    """The graphs dict includes the examples graphs."""
+    assert "test_flow" in graphs
+    assert graphs["test_flow"]["name"] == "Test Flow"
 
 
 # ---------------------------------------------------------------------------
@@ -159,13 +159,28 @@ def test_post_sessions_creates_session(client):
     assert "graph_name" in data
 
 
-def test_post_sessions_default_graph(client):
-    """POST /api/sessions defaults to 'book_planner' and includes graph_name."""
+def test_post_sessions_default_graph(client, graphs):
+    """POST /api/sessions with no graph_id falls back to the first registered graph."""
     resp = client.post("/api/sessions", json={})
     assert resp.status_code == 200
     data = resp.json()
-    assert data["graph_id"] == "book_planner"
-    assert data["graph_name"] == "Book Planner"
+    default_id = next(iter(graphs))
+    assert data["graph_id"] == default_id
+    assert data["graph_name"] == graphs[default_id]["name"]
+
+
+def test_post_sessions_503_when_no_graphs_registered(client):
+    """An empty registry gives a clear 503 instead of an opaque server error."""
+    from backend.graph_registry import GRAPH_REGISTRY
+
+    saved = dict(GRAPH_REGISTRY)
+    GRAPH_REGISTRY.clear()
+    try:
+        resp = client.post("/api/sessions", json={})
+        assert resp.status_code == 503
+        assert "No graphs are registered" in resp.json()["detail"]
+    finally:
+        GRAPH_REGISTRY.update(saved)
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +440,7 @@ def test_get_session_messages_interrupted_session(client):
 
 def test_get_session_messages_includes_system_message(client, shared_session_manager):
     """SystemMessage appears in the response with role 'system'."""
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
     from langchain.messages import SystemMessage
     from langchain_core.messages import HumanMessage
 

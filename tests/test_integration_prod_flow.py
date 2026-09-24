@@ -54,7 +54,7 @@ async def test_create_session_via_prod_app(prod_app, _clear_test_db):
     """
     with TestClient(prod_app) as client:
         response = client.post(
-            "/api/sessions", json={"graph_id": "book_planner"}
+            "/api/sessions", json={"graph_id": "test_flow"}
         )
         assert response.status_code == 200, response.text
         data = response.json()
@@ -69,7 +69,7 @@ async def test_list_sessions_via_prod_app(prod_app, _clear_test_db):
     with TestClient(prod_app) as client:
         # Create a session first so we have something to list.
         create_resp = client.post(
-            "/api/sessions", json={"graph_id": "book_planner"}
+            "/api/sessions", json={"graph_id": "test_flow"}
         )
         assert create_resp.status_code == 200
         session_id = create_resp.json()["session_id"]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from langchain_openai import ChatOpenAI
-from backend.config.tools import TOOLS
+# from backend.config.tools import TOOLS
 
 
 # Shared LLM instance — configured once, reused across graphs.
@@ -24,4 +24,4 @@ chat = ChatOpenAI(
     reasoning={"effort": "max", "summary": None},
     output_version="responses/v1",
 )
-chat = chat.bind_tools(TOOLS)
+# chat = chat.bind_tools(TOOLS)

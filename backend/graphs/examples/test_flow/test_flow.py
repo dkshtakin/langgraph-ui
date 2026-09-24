@@ -16,7 +16,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
 
-from backend.graphs.common import FlowState, pause_node
+from backend.graphs.examples.common import FlowState, pause_node
 
 
 # ---------------------------------------------------------------------------
@@ -59,5 +59,4 @@ def build() -> object:
 # Graph identity (for registry auto-discovery)
 # ---------------------------------------------------------------------------
 
-id: str = "test_flow"
 name: str = "Test Flow"

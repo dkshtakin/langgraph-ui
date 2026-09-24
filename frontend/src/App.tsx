@@ -22,7 +22,9 @@ export default function App() {
   const [nextId, setNextId] = useState(1)
   const [liveStream, setLiveStream] = useState<LiveStream | null>(null)
   const [graphs, setGraphs] = useState<GraphInfo[]>([])
-  const [currentGraphId, setCurrentGraphId] = useState('book_planner')
+  // Empty until the graph list arrives; the first registered graph is the default.
+  const [currentGraphId, setCurrentGraphId] = useState('')
+  const defaultGraphId = graphs[0]?.id ?? ''
 
   const abortRef = useRef<AbortController | null>(null)
   const liveIdRef = useRef(0)
@@ -62,7 +64,12 @@ export default function App() {
   // Load session list and graphs on mount.
   useEffect(() => {
     getSessions().then(setSessions).catch(console.error)
-    getGraphs().then(setGraphs).catch(console.error)
+    getGraphs()
+      .then((list) => {
+        setGraphs(list)
+        setCurrentGraphId((current) => current || list[0]?.id || '')
+      })
+      .catch(console.error)
   }, [])
 
   const refreshSessions = useCallback(async () => {
@@ -91,7 +98,7 @@ export default function App() {
       }
     }
     setSession(nextSession)
-    setCurrentGraphId(nextSession?.graph_id ?? 'book_planner')
+    setCurrentGraphId(nextSession?.graph_id ?? defaultGraphId)
 
     if (nextSession) {
       try {
@@ -110,14 +117,14 @@ export default function App() {
         console.error('[App] failed to load messages for session', nextSession.session_id)
       }
     }
-  }, [sessions])
+  }, [sessions, defaultGraphId])
 
   const startNewSession = useCallback(async (graphId?: string) => {
     abortRef.current?.abort()
     abortRef.current = null
     setMessages([])
     setLiveStream(null)
-    const s = await createSession(graphId ?? currentGraphId)
+    const s = await createSession(graphId || currentGraphId)
     setSession(s)
     setSessions((prev) => [s, ...prev])
 
@@ -153,7 +160,7 @@ export default function App() {
       },
     })
     abortRef.current = controller
-  }, [currentGraphId, startLiveTurn])
+  }, [currentGraphId, defaultGraphId, startLiveTurn])
 
   const handleSend = useCallback((message: string) => {
     if (!session) return

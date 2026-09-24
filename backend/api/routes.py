@@ -11,7 +11,6 @@ GET    /api/sessions/{session_id}/messages — load normalized message history f
 POST    /api/resume/{session_id}           — send a user message and stream the graph response via SSE.
 PATCH /api/sessions/{session_id}          — rename a session (update title).
 DELETE /api/sessions/{session_id}         — delete a session and its checkpoint data.
-GET    /stream                            — legacy SSE streaming endpoint (query-param based).
 """
 
 from __future__ import annotations
@@ -23,20 +22,24 @@ import traceback
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from backend import GRAPH_REGISTRY, get_graph_name
+from backend.graph_registry import GRAPH_REGISTRY, get_graph_name
 
 logger = logging.getLogger(__name__)
 
 
 class CreateSessionRequest(BaseModel):
-    """Request body for POST /api/sessions."""
+    """Request body for POST /api/sessions.
 
-    graph_id: str = "book_planner"
+    ``graph_id`` defaults to the first registered graph (``examples`` load
+    before ``user``), so the endpoint works without a hardcoded graph id.
+    """
+
+    graph_id: str | None = None
 
 
 class RenameSessionRequest(BaseModel):
@@ -120,9 +123,9 @@ def create_router(
     @router.get("/graphs")
     async def list_graphs() -> dict[str, Any]:
         """Return a dict of registered graph IDs to their metadata."""
-        from backend import list_graphs
+        from backend.graph_registry import list_graphs as list_registered_graphs
 
-        graphs = list_graphs()
+        graphs = list_registered_graphs()
         return {"graphs": graphs}
 
     # ── session management ───────────────────────────────────────────────
@@ -155,6 +158,11 @@ def create_router(
         -------
         dict with ``session_id``, ``thread_id``, ``graph_id``, and ``graph_name``.
         """
+        if not GRAPH_REGISTRY:
+            raise HTTPException(
+                status_code=503,
+                detail="No graphs are registered — cannot create a session.",
+            )
         return mgr.create_session(body.graph_id)
 
     @router.patch("/sessions/{session_id}")
@@ -436,57 +444,6 @@ def create_router(
             },
         )
 
-    # ── legacy SSE stream endpoint ───────────────────────────────────────
-
-    @router.get("/stream")
-    async def stream(
-        request: Request,
-        graph_id: str = Query("book_planner", description="Registered graph ID"),
-        state_json: str | None = Query(None, description="Initial JSON-encoded state"),
-    ) -> StreamingResponse:
-        """SSE endpoint — streams structured chunks from LangGraph."""
-        from backend.graph_registry import registry
-
-        # Parse optional initial state
-        if state_json:
-            initial_state = json.loads(state_json)
-        else:
-            initial_state = {"messages": [], "stage": "dialog", "summary": None}
-
-        # Resolve graph — raises 404 if not found (handled by middleware)
-        try:
-            graph_instance = registry.get(graph_id)
-        except KeyError:
-            available = ", ".join(registry.list())
-            return StreamingResponse(
-                _error_stream(f"Unknown graph: {graph_id}. Available: {available}"),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache"},
-            )
-
-        # Iterate SSE events — abort on client disconnect
-        async def event_iterator() -> AsyncIterator[bytes]:
-            try:
-                from backend.sse_streaming import stream_langgraph_events
-
-                for sse_chunk in stream_langgraph_events(graph_instance, initial_state):
-                    if request.client_disconnected:
-                        break
-                    yield _format_sse(sse_chunk) + "\n\n"
-            except Exception as exc:
-                tb = traceback.format_exc()
-                yield _format_sse({"event": "error", "data": {"detail": f"{type(exc).__name__}: {exc}\n\n{tb}"}}) + "\n\n"
-
-        return StreamingResponse(
-            event_iterator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",  # disable nginx buffering
-            },
-        )
-
     return router
 
 
@@ -501,8 +458,3 @@ def _format_sse(data: dict[str, Any]) -> str:
     # Serialize the payload (handles nested dicts / lists).
     lines.append(f"data: {json.dumps(data['data'], ensure_ascii=False)}")
     return "\n".join(lines)
-
-
-async def _error_stream(message: str) -> AsyncIterator[str]:
-    """Yield a single SSE error event."""
-    yield _format_sse({"event": "error", "data": {"detail": message}}) + "\n\n"

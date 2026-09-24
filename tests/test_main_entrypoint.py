@@ -27,7 +27,7 @@ def test_router_mounted(client):
     resp = client.get("/api/graphs")
     assert resp.status_code == 200
     data = resp.json()
-    assert "book_planner" in data["graphs"]
+    assert "test_flow" in data["graphs"]
 
 
 def test_swagger_ui_served_at_docs(client):
@@ -47,6 +47,5 @@ def test_openapi_lists_all_endpoints(client):
         "/api/sessions",
         "/api/resume/{session_id}",
         "/api/sessions/{session_id}",
-        "/api/stream",
     ]:
         assert expected in paths

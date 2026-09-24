@@ -70,7 +70,7 @@ def sqlite_saver():
 @pytest.fixture(scope="module")
 def session_manager_with_sqlite(sqlite_saver):
     """SessionManager pre-populated with the test graph and SQLite checkpointer."""
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
 
     original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled
@@ -134,7 +134,7 @@ def test_session_title_format(session_manager_with_sqlite):
 
 def test_restore_sessions_from_sqlite(sqlite_saver):
     """A fresh SessionManager with the same SqliteSaver restores persisted sessions."""
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
 
     original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled
@@ -160,7 +160,7 @@ def test_restore_sessions_from_sqlite(sqlite_saver):
 
 def test_restored_session_can_resume(sqlite_saver):
     """A restored session can continue graph execution via resume()."""
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
 
     original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled
@@ -190,7 +190,7 @@ def test_restored_session_can_resume(sqlite_saver):
 @pytest.mark.asyncio
 async def test_status_paused_when_no_resume_write(sqlite_saver):
     """A freshly created session that has not been resumed reports 'paused'."""
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
 
     original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled
@@ -215,7 +215,7 @@ async def test_status_paused_when_no_resume_write(sqlite_saver):
 @pytest.mark.asyncio
 async def test_status_completed_after_resume(sqlite_saver):
     """After a successful resume the session reports 'completed'."""
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
 
     original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled
@@ -248,7 +248,7 @@ async def test_get_session_status_returns_none_for_unknown(session_manager_with_
 @pytest.mark.asyncio
 async def test_status_paused_independent_of_other_sessions(sqlite_saver):
     """Completing one session must not affect the status of a paused sibling."""
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
 
     original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled

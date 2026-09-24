@@ -29,7 +29,7 @@ from langchain.messages import AnyMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from backend import GRAPH_REGISTRY, get_graph_name
+from backend.graph_registry import GRAPH_REGISTRY, get_graph_name
 from backend.persistence import (
     _create_tables as _ensure_sessions_table,
 )
@@ -76,7 +76,7 @@ class SessionManager:
 
     # ── session lifecycle ────────────────────────────────────────────────
 
-    def create_session(self, graph_id: str = "book_planner") -> dict[str, str]:
+    def create_session(self, graph_id: str | None = None) -> dict[str, str]:
         """Create a new session for *graph_id*.
 
         Returns
@@ -85,6 +85,16 @@ class SessionManager:
         ``graph_name``.
         """
         from backend.persistence import create_session, get_db, _format_title
+
+        if not graph_id:
+            # No id given (or an empty one): fall back to the first registered
+            # graph — tiers load ``examples`` before ``user``.
+            if not GRAPH_REGISTRY:
+                raise ValueError(
+                    "No graphs are registered — cannot create a session "
+                    "without an explicit graph_id."
+                )
+            graph_id = next(iter(GRAPH_REGISTRY))
 
         thread_id = str(uuid.uuid4())
         session_id = str(uuid.uuid4())

@@ -64,7 +64,7 @@ _test_graph_compiled = _test_graph_builder.compile()
 def session_manager():
     """Return a fresh SessionManager pre-populated with the test graph."""
     # Inject the test graph into GRAPH_REGISTRY so create_session can find it.
-    from backend import GRAPH_REGISTRY
+    from backend.graph_registry import GRAPH_REGISTRY
 
     original = GRAPH_REGISTRY.get(_TEST_GRAPH_ID)
     GRAPH_REGISTRY[_TEST_GRAPH_ID] = _test_graph_compiled
