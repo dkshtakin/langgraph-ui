@@ -15,16 +15,23 @@ Graph structure::
 
 from __future__ import annotations
 
+from datetime import date
 from typing import TypedDict
 
 from langchain.messages import AnyMessage
+from langchain.tools import tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing_extensions import Annotated
 
 from backend.config.llm import chat
-from backend.config.tools import today_tool
+
+
+@tool
+def today_tool() -> str:
+    """Return today's date in ISO format."""
+    return date.today().isoformat()
 
 
 chat = chat.bind_tools([today_tool])
