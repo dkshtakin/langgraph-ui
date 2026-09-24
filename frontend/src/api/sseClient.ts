@@ -9,6 +9,8 @@
  *   - error       — server-side error                   (data.detail)
  */
 
+import type { ToolCallArgs } from '../types'
+
 export type SseEventType = 'answer' | 'reasoning' | 'interrupt' | 'done' | 'error' | 'tool_call' | 'invalid_tool_call'
 
 interface SseEvent {
@@ -23,7 +25,7 @@ export interface SseCallbacks {
   onError?: (detail: string) => void
   onComplete?: () => void   // fires after done or error, stream is closed
   /** Emitted when the LLM invokes a tool. `invalid=true` means the call was rejected by the server. */
-  onToolCall?: (call: { name: string; args: Record<string, unknown>; invalid: boolean }) => void
+  onToolCall?: (call: { name: string; args: ToolCallArgs; invalid: boolean }) => void
 }
 
 function parseSseLine(line: string): SseEvent | null {
@@ -149,7 +151,9 @@ export function streamResume(
                   }
                 } else if (eventType === 'tool_call' || eventType === 'invalid_tool_call') {
                   const name = (parsed.data as any)?.name as string | undefined
-                  const args = (parsed.data as any)?.args as Record<string, unknown> ?? {}
+                  // Keep null as null — an invalid call with no arguments is a
+                  // real case, and `?? {}` would hide it from the renderer.
+                  const args = ((parsed.data as any)?.args ?? null) as ToolCallArgs
                   if (name) {
                     console.log('[sseClient] tool_call:', eventType, name)
                     callbacks.onToolCall?.({ name, args, invalid: eventType === 'invalid_tool_call' })

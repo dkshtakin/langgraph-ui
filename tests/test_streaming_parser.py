@@ -237,6 +237,31 @@ def test_flush_in_reasoning_with_end_tag():
     assert buf == ""
 
 
+def test_flush_resolves_every_tag_left_in_buffer():
+    """A buffer holding several boundaries must be fully resolved on flush.
+
+    A model that retries an invalid tool call emits a block carrying two
+    reasoning pairs. ``parse_reasoning`` resolves one boundary per call, so the
+    rest are still in the buffer when the block finishes. Flushing used to dump
+    everything past the first end tag into the answer, leaking raw tags into
+    the text the user reads.
+    """
+    text = (
+        f"{start_reasoning_tag}\n\n{end_reasoning_tag}\n\n"
+        f"{start_reasoning_tag}думаю{end_reasoning_tag}\n\n"
+    )
+    buf, in_r, emitted = parse_reasoning(text, "", False)
+    _, _, flushed = flush_buffer(buf, in_r)
+    emitted.extend(flushed)
+
+    reasoning = "".join(c["content"] for c in emitted if c["type"] == "reasoning")
+    answer = "".join(c["content"] for c in emitted if c["type"] == "answer")
+
+    assert reasoning == "\n\nдумаю"
+    assert start_reasoning_tag not in answer
+    assert end_reasoning_tag not in answer
+
+
 # ── consecutive reasoning blocks ────────────────────────────────────────────
 
 

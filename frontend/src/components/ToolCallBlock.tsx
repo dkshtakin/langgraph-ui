@@ -1,15 +1,6 @@
 import { useState } from 'react'
+import { stringifyArgs } from '../toolArgs'
 import type { ToolCallEvent } from '../types'
-
-/** Minimal JSON pretty-print for tool call args. */
-export function stringifyArgs(args: Record<string, unknown>): string {
-  if (Object.keys(args).length === 0) return ''
-  try {
-    return JSON.stringify(args, null, 2)
-  } catch {
-    return String(args)
-  }
-}
 
 interface ToolCallBlockProps {
   call: ToolCallEvent

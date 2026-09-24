@@ -118,9 +118,11 @@ def flush_buffer(
 ) -> tuple[str, bool, list[dict]]:
     """Emit remaining buffered text and reset state.
 
-    When ``in_reasoning`` is ``True``, finds the end delimiter (if present),
-    emits the content up to it as a reasoning chunk, then emits any remaining
-    tail as an answer chunk.
+    ``parse_reasoning`` resolves at most one boundary per call, so a buffer can
+    still hold complete tags when its block ends — a model retrying an invalid
+    tool call emits a block carrying two reasoning pairs. Every complete tag is
+    resolved here; only a partial trailing tag is emitted verbatim, so no
+    characters are lost.
 
     Args:
         output_buffer: Remaining buffer content.
@@ -132,20 +134,22 @@ def flush_buffer(
     """
     chunks: list[dict] = []
 
-    if in_reasoning:
-        idx = output_buffer.find(end_reasoning_tag)
-        if idx != -1:
-            chunks.append(
-                {"type": "reasoning", "content": output_buffer[:idx]}
-            )
-            output_buffer = output_buffer[idx + K :]
-        else:
-            chunks.append({"type": "reasoning", "content": output_buffer})
-            output_buffer = ""
+    while True:
+        tag = end_reasoning_tag if in_reasoning else start_reasoning_tag
+        idx = output_buffer.find(tag)
+        if idx == -1:
+            break
+        _safe_emit(
+            chunks, "reasoning" if in_reasoning else "answer", output_buffer[:idx]
+        )
+        output_buffer = output_buffer[idx + len(tag) :]
+        in_reasoning = not in_reasoning
 
-    # Emit any remaining answer text (may appear after reasoning ends).
+    # A partial trailing tag, or plain text after the last boundary.
     if output_buffer:
-        chunks.append({"type": "answer", "content": output_buffer})
+        chunks.append(
+            {"type": "reasoning" if in_reasoning else "answer", "content": output_buffer}
+        )
 
     return "", False, chunks
 

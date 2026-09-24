@@ -280,7 +280,7 @@ def test_resume_emits_tool_call_event(client, monkeypatch):
                             "content": {
                                 "type": "tool_call",
                                 "name": "today_tool",
-                                "args": {"date": "2026-09-08"},
+                                "args": {"date": "2026-09-08", "note": "сегодня"},
                             },
                         }
                     ]
@@ -315,7 +315,11 @@ def test_resume_emits_tool_call_event(client, monkeypatch):
     assert len(tool_call_events) == 1, "Should emit exactly one tool_call event"
     tc = tool_call_events[0]["data"]
     assert tc["name"] == "today_tool"
-    assert tc["args"] == '{"date": "2026-09-08"}'
+    # Args travel as a parsed object — the frontend pretty-prints them as-is.
+    assert tc["args"] == {"date": "2026-09-08", "note": "сегодня"}
+    # Cyrillic must reach the wire unescaped: no \uXXXX in the SSE payload.
+    assert "сегодня" in resp.text
+    assert "\\u" not in resp.text
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { ToolCallList } from './ToolCallBlock'
 import ReasoningBlock from './ReasoningBlock'
-import { formatMarkdown } from '../markdown'
+import Markdown from './Markdown'
 import type { ChatMessage, MessagePart } from '../types'
 
 export default function MessageBlock(message: ChatMessage) {
@@ -17,7 +17,7 @@ export default function MessageBlock(message: ChatMessage) {
   if (message.role === 'system') {
     return (
       <div className="msg-system">
-        <div className="msg-bubble system-bubble" dangerouslySetInnerHTML={{ __html: formatMarkdown(message.text) }} />
+        <div className="msg-bubble system-bubble">{message.text}</div>
       </div>
     )
   }
@@ -47,9 +47,8 @@ function Part({ part }: { part: MessagePart }) {
   const isError = part.text.startsWith('⚠️ Ошибка:')
 
   return (
-    <div
-      className={`msg-bubble ${isError ? 'error-bubble' : 'answer-bubble'}`}
-      dangerouslySetInnerHTML={{ __html: formatMarkdown(part.text) }}
-    />
+    <div className={`msg-bubble ${isError ? 'error-bubble' : 'answer-bubble'}`}>
+      {isError ? part.text : <Markdown text={part.text} />}
+    </div>
   )
 }

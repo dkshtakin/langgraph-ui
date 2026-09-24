@@ -370,7 +370,7 @@ def create_router(
                                 args = content_block.get("args", {})
                                 sse_event = "tool_call" if ct == "tool_call" else "invalid_tool_call"
                                 yield _format_sse(
-                                    {"event": sse_event, "data": {"name": name, "args": json.dumps(args)}}
+                                    {"event": sse_event, "data": {"name": name, "args": args}}
                                 ) + "\n\n"
                 except Exception as exc:
                     tb = traceback.format_exc()

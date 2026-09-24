@@ -1,8 +1,14 @@
 export type StreamState = 'idle' | 'initializing' | 'streaming' | 'interrupted' | 'done'
 
+/**
+ * A valid call carries its parsed arguments; an invalid one carries the raw
+ * string that failed to parse, or null when it had no arguments at all.
+ */
+export type ToolCallArgs = Record<string, unknown> | string | null
+
 export interface ToolCallEvent {
   name: string
-  args: Record<string, unknown>
+  args: ToolCallArgs
   invalid?: boolean  // true when emitted as "invalid_tool_call"
 }
 

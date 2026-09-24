@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { formatMarkdown } from '../markdown'
 
 interface ReasoningBlockProps {
   text: string
@@ -17,7 +16,7 @@ export default function ReasoningBlock({ text }: ReasoningBlockProps) {
         Reasoning
       </summary>
       <div className={`reasoning-content-wrap ${collapsed ? 'collapsed' : ''}`}>
-        <div className="reasoning-content" dangerouslySetInnerHTML={{ __html: formatMarkdown(text) }} />
+        <div className="reasoning-content">{text}</div>
       </div>
     </div>
   )

@@ -1,3 +1,5 @@
+import type { ToolCallArgs } from '../types'
+
 export interface Session {
   session_id: string
   thread_id: string
@@ -69,7 +71,7 @@ export interface SerializedMessage {
   role: string
   text: string | null
   reasoning: string | null
-  toolCalls?: Array<{ name: string; args: Record<string, unknown> }>
+  toolCalls?: Array<{ name: string; args: ToolCallArgs }>
 }
 
 export async function getMessages(sessionId: string): Promise<SerializedMessage[]> {

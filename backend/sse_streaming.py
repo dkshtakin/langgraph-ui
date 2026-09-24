@@ -15,7 +15,6 @@ Example usage in a FastAPI route::
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from typing import Any
 
@@ -90,9 +89,7 @@ def stream_langgraph_events(
             if content_block.get("type") == "tool_call":
                 name = content_block.get("name", "")
                 args = content_block.get("args", {})
-                yield _make_event(
-                    "tool_call", {"name": name, "args": json.dumps(args)}
-                )
+                yield _make_event("tool_call", {"name": name, "args": args})
 
     # Final flush at stream end.
     output_buffer, in_reasoning, final_flushed = flush_buffer(
