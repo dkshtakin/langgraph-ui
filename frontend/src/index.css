@@ -6,7 +6,6 @@
   --muted: #6b7280;
   --user-bubble: #dbeafe;
   --assistant-bubble: #f3f4f6;
-  --reasoning-bg: #f0f0f0;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --max-content-width: 900px;
@@ -114,14 +113,22 @@
 .sidebar-empty {
   font-size: 0.8rem;
   color: var(--muted);
-  padding: 12px 14px;
+  padding: 12px 14px 16px;
   margin: 0;
 }
 
 .session-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 8px;
+  /* Полоса прокрутки скрыта, сама прокрутка остаётся. */
+  scrollbar-width: none;
+  /* Низ равен верхнему отступу заголовка (.sidebar-header), иначе список
+     липнет к нижней рамке карточки. */
+  padding: 4px 8px 16px;
+}
+
+.session-list::-webkit-scrollbar {
+  display: none;
 }
 
 .session-item {
@@ -310,7 +317,25 @@
 .messages-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  /* Расстояние между сообщениями задают сами сообщения: у ленты gap нет,
+     потому что разрыв ассистентского сообщения на границе вызова инструмента
+     отдельным сообщением не является — см. ниже. */
+}
+
+.msg-user,
+.msg-system,
+.msg-assistant {
+  margin-top: 16px;
+}
+
+.messages-list > :first-child {
+  margin-top: 0;
+}
+
+/* Вызов инструмента закрывает ассистентское сообщение, следующая часть
+   открывает новое — визуально это одна группа строк, а не два сообщения. */
+.msg-assistant + .msg-assistant {
+  margin-top: 2px;
 }
 
 .msg-user {
@@ -471,40 +496,185 @@
   margin: 12px 0;
 }
 
-.reasoning-block {
-  margin-top: 8px;
+/* ── Строки reasoning и вызовов инструментов ─────────────────────── */
+
+.row {
   width: 100%;
-  max-width: var(--max-content-width);
 }
 
-.reasoning-summary {
-  cursor: pointer;
-  font-size: 0.8rem;
+/* Строки идут подряд — внутри группы зазор теснее, чем перед пузырём ответа. */
+.row + .row {
+  margin-top: 2px;
+}
+
+.msg-assistant > .msg-bubble + .row {
+  margin-top: 8px;
+}
+
+.msg-assistant > .row + .msg-bubble {
+  margin-top: 8px;
+}
+
+/* Новое сообщение, начавшееся сразу с ответа после вызова инструмента. */
+.msg-assistant + .msg-assistant > .msg-bubble:first-child {
+  margin-top: 8px;
+}
+
+.row-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  /* Иконка встаёт в одну вертикаль с текстом пузыря ответа: у пузыря
+     padding 14px, строка без него уезжала левее. */
+  padding: 3px 0 3px 14px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 22px;
+  text-align: left;
   color: var(--muted);
-  padding: 4px 0;
-  user-select: none;
+  cursor: pointer;
+  transition: color 120ms ease;
 }
 
-.reasoning-content-wrap {
+.row-btn:hover,
+.row-btn:focus-visible {
+  color: var(--text);
+}
+
+.row-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.row-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Иконка и шеврон центрируются по геометрическому центру строки, а текст — нет:
+   строка лайн-бокса выше строчных букв, поэтому центр x-height садится ниже.
+   Замерено в Chrome (Segoe UI, 16px/22px): baseline на 17px от верха бокса при
+   высоте 22px и x-height 8px, то есть x-центр на 2px ниже центра иконки.
+   Поднимаем подпись на эти 2px (0.125em), чтобы её оптический центр совпал с
+   иконкой. Лайн-хейтом не лечится — half-leading симметричный. */
+.row-label {
+  transform: translateY(-0.125em);
+}
+
+.row-tool-name {
+  font-family: ui-monospace, monospace;
+  /* У моноширинного шрифта свои метрики, и унаследованный line-height 22px
+     раздувал его лайн-бокс: строка вызова становилась выше строки reasoning
+     (23-25px против 22px). line-height: 1 прижимает бокс к кеглю, и он
+     гарантированно укладывается в strut основного шрифта. */
+  line-height: 1;
+}
+
+.row-chevron {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/* Штрихи всех трёх иконок нарисованы по центру viewBox (проверено численно:
+   разброс меньше 0.6px), поэтому сдвигов нет ни у одной. Поворот живёт на
+   самом svg: на обёртке шеврон вращался бы вокруг её центра, а не вокруг
+   своей оси. */
+.row-chevron svg {
+  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.row-btn:hover .row-chevron,
+.row-btn:focus-visible .row-chevron,
+.row-expanded .row-chevron {
+  opacity: 1;
+}
+
+/* Пока строка раскрыта, стрелка смотрит вниз. */
+.row-expanded .row-chevron svg {
+  transform: rotate(90deg);
+}
+
+/* На тач-устройствах ховера нет — шеврон виден всегда. */
+@media (hover: none) {
+  .row-chevron {
+    opacity: 1;
+  }
+}
+
+.row-content-wrap {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 0.3s ease-in-out;
+  transition: grid-template-rows 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-.reasoning-content-wrap.collapsed {
+
+.row-collapsed .row-content-wrap {
   grid-template-rows: 0fr;
 }
-.reasoning-content {
+
+/* Плашки нет: до текста 22px (6 + 2 + 14), линия идёт по центру иконки. */
+.row-content {
   overflow: hidden;
-  background: var(--reasoning-bg);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 10px 14px;
-  font-size: 0.875rem;
-  color: var(--muted);
+  margin-left: 6px;
+  border-left: 2px solid var(--border);
+  padding: 2px 0 6px 14px;
+  transition: opacity 120ms ease;
+}
+
+/* Раскрываясь, содержимое проявляется вслед за высотой; сворачиваясь —
+   гаснет сразу. */
+.row-expanded .row-content {
+  opacity: 1;
+  transition: opacity 180ms ease 100ms;
+}
+
+.row-collapsed .row-content {
+  opacity: 0;
+}
+
+.row-text {
+  font-size: 13px;
   line-height: 1.6;
+  color: var(--muted);
   white-space: pre-wrap;
   word-break: break-word;
-  margin-top: 4px;
+}
+
+.row-args-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.row-args {
+  margin: 0;
+  padding-top: 2px;
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.row-no-args {
+  font-size: 0.75rem;
+  color: #b0b0b0;
+}
+
+.tool-call-badge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fee2e2;
+  color: #991b1b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .input-bar {
@@ -690,97 +860,4 @@
 .graph-switcher-item-active {
   color: var(--accent);
   font-weight: 600;
-}
-
-/* ── Tool call blocks ─────────────────────────────────────────────── */
-
-.tool-call-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-  width: 100%;
-  max-width: var(--max-content-width);
-}
-
-.tool-call-block {
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--reasoning-bg);
-  overflow: hidden;
-}
-
-.tool-call-valid {
-  border-color: #d1fae5;
-}
-
-.tool-call-invalid {
-  border-color: #fef3c7;
-}
-
-.tool-call-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.04);
-  cursor: pointer;
-  user-select: none;
-}
-
-.tool-call-content-wrap {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 0.3s ease-in-out;
-}
-.tool-call-content-wrap.collapsed {
-  grid-template-rows: 0fr;
-}
-
-/* The separator belongs to the collapsible region: it goes away with it. */
-.tool-call-content {
-  overflow: hidden;
-  border-top: 1px solid var(--border);
-}
-.tool-call-content-wrap.collapsed .tool-call-content {
-  border-top-width: 0;
-}
-
-.tool-call-args-label {
-  padding: 8px 12px 0;
-  font-size: 0.7rem;
-  color: var(--muted);
-}
-
-.tool-call-name {
-  font-family: ui-monospace, monospace;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.tool-call-badge {
-  font-size: 0.7rem;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: #fee2e2;
-  color: #991b1b;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.tool-call-args {
-  margin: 0;
-  padding: 4px 12px 10px;
-  font-size: 0.75rem;
-  font-family: ui-monospace, monospace;
-  color: var(--text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.tool-call-no-args {
-  padding: 4px 12px 10px;
-  font-size: 0.75rem;
-  color: #b0b0b0;
 }

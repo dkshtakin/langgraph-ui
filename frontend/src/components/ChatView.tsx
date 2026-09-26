@@ -24,9 +24,10 @@ export default function ChatView({ messages, streamingMessages, streamState }: C
           <MessageBlock key={msg.id} {...msg} />
         ))}
 
-        {/* Live assistant messages — rendered exactly like the history ones. */}
+        {/* Live assistant messages — same renderer, plus the flag that drives
+            the auto-expanding trailing row. */}
         {hasLiveStream && streamingMessages.map((msg) => (
-          <MessageBlock key={msg.id} {...msg} />
+          <MessageBlock key={msg.id} {...msg} isLive />
         ))}
 
         <div ref={bottomRef} />

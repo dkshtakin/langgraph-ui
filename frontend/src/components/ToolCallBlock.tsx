@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { Wrench } from 'lucide-react'
 import { stringifyArgs } from '../toolArgs'
+import CollapsibleRow from './CollapsibleRow'
 import type { ToolCallEvent } from '../types'
 
 interface ToolCallBlockProps {
@@ -7,24 +9,24 @@ interface ToolCallBlockProps {
 }
 
 function ToolCallBlock({ call }: ToolCallBlockProps) {
-  const [collapsed, setCollapsed] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const args = stringifyArgs(call.args)
 
   return (
-    <div className={`tool-call-block ${call.invalid ? 'tool-call-invalid' : 'tool-call-valid'}`}>
-      <div className="tool-call-header" onClick={() => setCollapsed((c) => !c)}>
-        <span className="tool-call-name">{call.name}</span>
-        {call.invalid && <span className="tool-call-badge invalid">invalid</span>}
-      </div>
-      <div className={`tool-call-content-wrap ${collapsed ? 'collapsed' : ''}`}>
-        <div className="tool-call-content">
-          <div className="tool-call-args-label">Аргументы</div>
-          {args
-            ? <pre className="tool-call-args"><code>{args}</code></pre>
-            : <div className="tool-call-no-args">нет аргументов</div>}
-        </div>
-      </div>
-    </div>
+    <CollapsibleRow
+      icon={<Wrench size={15} strokeWidth={1.8} aria-hidden="true" />}
+      label={<>Инструмент <span className="row-tool-name">{call.name}</span></>}
+      badge={call.invalid && <span className="tool-call-badge invalid">invalid</span>}
+      expanded={expanded}
+      onToggle={() => setExpanded((e) => !e)}
+    >
+      {args
+        ? <>
+            <div className="row-args-label">Аргументы</div>
+            <pre className="row-args"><code>{args}</code></pre>
+          </>
+        : <div className="row-no-args">нет аргументов</div>}
+    </CollapsibleRow>
   )
 }
 
@@ -32,12 +34,14 @@ interface ToolCallListProps {
   calls: ToolCallEvent[]
 }
 
+/** Строки вызовов — прямые соседи остальных строк сообщения: так зазор между
+ *  ними задаётся одним правилом `.row + .row`, без промежуточной обёртки. */
 export function ToolCallList({ calls }: ToolCallListProps) {
   return (
-    <div className="tool-call-list">
+    <>
       {calls.map((call, i) => (
         <ToolCallBlock key={i} call={call} />
       ))}
-    </div>
+    </>
   )
 }

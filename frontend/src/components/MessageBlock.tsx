@@ -3,12 +3,13 @@ import ReasoningBlock from './ReasoningBlock'
 import Markdown from './Markdown'
 import type { ChatMessage, MessagePart } from '../types'
 
-export default function MessageBlock(message: ChatMessage) {
+export default function MessageBlock(message: ChatMessage & { isLive?: boolean }) {
   if ('parts' in message) {
+    const { parts, isLive } = message
     return (
       <div className="msg-assistant">
-        {message.parts.map((part, i) => (
-          <Part key={i} part={part} />
+        {parts.map((part, i) => (
+          <Part key={i} part={part} isTrailing={!!isLive && i === parts.length - 1} />
         ))}
       </div>
     )
@@ -29,9 +30,17 @@ export default function MessageBlock(message: ChatMessage) {
   )
 }
 
-function Part({ part }: { part: MessagePart }) {
+function Part({ part, isTrailing }: { part: MessagePart; isTrailing: boolean }) {
   if (part.kind === 'reasoning') {
-    return <ReasoningBlock text={part.text} />
+    // Whitespace-only reasoning is the same backend artefact as the blank text
+    // below — it would render as a row that opens onto nothing. The model also
+    // wraps its reasoning in newlines (`<think>\n…`), which pre-wrap would show
+    // as an empty first line.
+    const text = part.text.trim()
+    if (!text) {
+      return null
+    }
+    return <ReasoningBlock text={text} isTrailing={isTrailing} />
   }
 
   if (part.kind === 'tool_calls') {
