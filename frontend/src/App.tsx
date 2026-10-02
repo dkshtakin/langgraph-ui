@@ -1,10 +1,19 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import ChatView from './components/ChatView'
+import ErrorPopup from './components/ErrorPopup'
 import GraphSwitcher from './components/GraphSwitcher'
 import InputBar from './components/InputBar'
 import Sidebar from './components/Sidebar'
-import { createSession, getGraphs, getMessages, getSessions, type GraphInfo, type Session } from './api/client'
+import {
+  createSession,
+  getGraphs,
+  getMessages,
+  getSessions,
+  reloadGraphs,
+  type GraphInfo,
+  type Session,
+} from './api/client'
 import { streamResume, SseCallbacks } from './api/sseClient'
 import { appendChunk, appendToolCall, historyParts } from './messageParts'
 
@@ -24,6 +33,8 @@ export default function App() {
   const [graphs, setGraphs] = useState<GraphInfo[]>([])
   // Empty until the graph list arrives; the first registered graph is the default.
   const [currentGraphId, setCurrentGraphId] = useState('')
+  const [reloadingGraphs, setReloadingGraphs] = useState(false)
+  const [reloadErrors, setReloadErrors] = useState<string[]>([])
   const defaultGraphId = graphs[0]?.id ?? ''
 
   const abortRef = useRef<AbortController | null>(null)
@@ -80,6 +91,30 @@ export default function App() {
       // Silently ignore — the user can reload the page.
     }
   }, [])
+
+  /**
+   * Rebuild every graph server-side, in the running process. Only the graph
+   * list is refreshed: open sessions keep the compiled graph they started
+   * with, so a stream in flight is neither aborted nor paused.
+   */
+  const handleReloadGraphs = useCallback(async () => {
+    if (reloadingGraphs) return
+    setReloadingGraphs(true)
+    try {
+      const { graphs: list, errors } = await reloadGraphs()
+      setGraphs(list)
+      // A graph that failed to build drops out of the list — fall back to the
+      // first survivor rather than leaving a dead id selected.
+      setCurrentGraphId((current) =>
+        list.some((g) => g.id === current) ? current : list[0]?.id ?? '',
+      )
+      setReloadErrors(errors.map((e) => `${e.graph_id} — ${e.error}`))
+    } catch (err) {
+      setReloadErrors([err instanceof Error ? err.message : String(err)])
+    } finally {
+      setReloadingGraphs(false)
+    }
+  }, [reloadingGraphs])
 
   const switchSession = useCallback(async (sessionId: string | null) => {
     abortRef.current?.abort()
@@ -223,6 +258,8 @@ export default function App() {
         activeSessionId={session?.session_id ?? null}
         onSelect={(id) => switchSession(id || null)}
         onRefresh={refreshSessions}
+        onReloadGraphs={handleReloadGraphs}
+        reloadingGraphs={reloadingGraphs}
       />
 
       <div className="main-wrapper">
@@ -261,6 +298,8 @@ export default function App() {
           )}
         </div>
       </div>
+
+      <ErrorPopup lines={reloadErrors} onClose={() => setReloadErrors([])} />
     </div>
   )
 }

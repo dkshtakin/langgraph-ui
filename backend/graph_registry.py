@@ -11,21 +11,25 @@ the fallback).  The graph's ``id`` *is* the folder name; nothing else declares
 it.  Other modules next to it (``nodes.py``, ``helpers.py``) are ordinary
 imports, and sub-folders are assets, not graphs.
 
-Discovery runs once, at import time.  Anything broken is logged and the folder
-is skipped — a bad graph never stops the server from starting.
+Discovery runs at import time, and again on demand via ``reload_graphs()``.
+Anything broken is logged and the folder is skipped — a bad graph never stops
+the server from starting.
 
 Public API:
     - ``get_graph(graph_id)`` → compiled graph
     - ``list_graphs()`` → dict of {id: {"name": str}}
     - ``get_graph_name(graph_id)`` → graph display name
+    - ``reload_graphs()`` → rescan disk and swap the registry in place
     - ``GRAPH_REGISTRY`` → dict of all registered graphs
 """
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import logging
 import pathlib
+import sys
 import traceback
 from typing import Any, Dict
 
@@ -54,52 +58,64 @@ def _generate_mermaid_png(compiled: Any, graph_id: str, graph_dir: pathlib.Path)
         logger.warning("Failed to generate mermaid PNG for %s: %s", graph_id, exc)
 
 
-def _load_graph(tier: str, graph_dir: pathlib.Path) -> tuple[str, Any, str] | None:
+def _load_graph(
+    tier: str, graph_dir: pathlib.Path
+) -> tuple[tuple[str, Any, str] | None, str | None]:
     """Import one graph folder and compile it.
 
-    Returns ``(graph_id, compiled, display_name)``, or ``None`` when the folder
-    is not a usable graph — the reason is logged either way.
+    Returns
+    -------
+    tuple
+        ``(loaded, error)``.  On success *loaded* is
+        ``(graph_id, compiled, display_name)`` and *error* is ``None``; on
+        failure *loaded* is ``None`` and *error* is a one-line
+        ``"<ExcType>: <message>"`` summary.  The full traceback goes to the log
+        either way — *error* is what callers may hand back to a client.
     """
     graph_id = graph_dir.name
     module_name = f"backend.graphs.{tier}.{graph_id}.{graph_id}"
 
     try:
         mod = importlib.import_module(module_name)
-    except Exception:
+    except Exception as exc:
         logger.error(
             "Failed to import graph %r from %s:\n%s",
             graph_id, module_name, traceback.format_exc(),
         )
-        return None
+        return None, f"{type(exc).__name__}: {exc}"
 
     build = getattr(mod, "build", None)
     if build is None:
+        # The module path belongs in the log, not in a client-facing message.
         logger.error("Graph %r (%s) does not export build()", graph_id, module_name)
-        return None
+        return None, "does not export build()"
 
     try:
         compiled = build()
-    except Exception:
+    except Exception as exc:
         logger.error(
             "Failed to build graph %r (%s):\n%s",
             graph_id, module_name, traceback.format_exc(),
         )
-        return None
+        return None, f"{type(exc).__name__}: {exc}"
 
     _generate_mermaid_png(compiled, graph_id, graph_dir)
-    return graph_id, compiled, getattr(mod, "name", None) or graph_id
+    return (graph_id, compiled, getattr(mod, "name", None) or graph_id), None
 
 
-def _discover() -> tuple[Dict[str, Any], Dict[str, str]]:
+def _discover() -> tuple[Dict[str, Any], Dict[str, str], list[Dict[str, str]]]:
     """Walk every tier folder and register each graph folder found.
 
     Returns
     -------
     tuple
-        (registry, names) where ``names`` maps id → display name.
+        (registry, names, errors) where ``names`` maps id → display name and
+        ``errors`` holds ``{"graph_id": ..., "error": ...}`` for every graph
+        folder that failed to load.
     """
     registry: Dict[str, Any] = {}
     names: Dict[str, str] = {}
+    errors: list[Dict[str, str]] = []
 
     for tier in TIERS:
         tier_dir = _GRAPHS_DIR / tier
@@ -119,8 +135,9 @@ def _discover() -> tuple[Dict[str, Any], Dict[str, str]]:
                 )
                 continue
 
-            loaded = _load_graph(tier, graph_dir)
+            loaded, error = _load_graph(tier, graph_dir)
             if loaded is None:
+                errors.append({"graph_id": graph_dir.name, "error": error or "unknown error"})
                 continue
             graph_id, compiled, display_name = loaded
 
@@ -135,10 +152,62 @@ def _discover() -> tuple[Dict[str, Any], Dict[str, str]]:
             registry[graph_id] = compiled
             names[graph_id] = display_name
 
-    return registry, names
+    return registry, names, errors
 
 
-GRAPH_REGISTRY, _GRAPH_NAMES = _discover()
+GRAPH_REGISTRY, _GRAPH_NAMES, _ = _discover()
+
+
+# Serialises rebuilds: two clicks must not interleave their purge-and-swap.
+_RELOAD_LOCK = asyncio.Lock()
+
+
+def _rebuild_registry() -> tuple[Dict[str, Any], Dict[str, str], list[Dict[str, str]]]:
+    """Drop cached graph modules and rediscover every tier from disk.
+
+    ``importlib.import_module()`` returns the cached module and never looks at
+    the filesystem, so a stale entry means edits on disk stay invisible —
+    including edits to shared modules such as ``examples/common.py``.  Only
+    ``backend.graphs.*`` is purged; the ``backend.graphs`` package itself is
+    left alone.
+    """
+    for name in [n for n in sys.modules if n.startswith("backend.graphs.")]:
+        del sys.modules[name]
+    return _discover()
+
+
+async def reload_graphs(graph_id: str | None = None) -> list[Dict[str, str]]:
+    """Rebuild the registry from disk and swap it in place, without restarting.
+
+    The rebuild is synchronous and its Mermaid PNG generation goes out to the
+    network, so it runs in a worker thread; only the swap back into
+    ``GRAPH_REGISTRY`` happens on the event loop.  Sessions already holding a
+    compiled graph are untouched — they keep running the code they started
+    with, and a stream in flight is not interrupted.
+
+    Returns
+    -------
+    list of dict
+        One ``{"graph_id": ..., "error": ...}`` entry per graph that failed to
+        load; empty when everything rebuilt.  Failed graphs are *absent* from
+        the registry rather than silently kept at their last good version.
+
+    Note:
+        *graph_id* is reserved for a future single-graph rebuild and is
+        currently ignored — every tier is always rescanned.
+    """
+    global _GRAPH_NAMES
+
+    async with _RELOAD_LOCK:
+        registry, names, errors = await asyncio.to_thread(_rebuild_registry)
+
+        # ``routes`` and ``session_manager`` hold a direct reference to this
+        # dict, so all the swap may do is mutate it.
+        GRAPH_REGISTRY.clear()
+        GRAPH_REGISTRY.update(registry)
+        _GRAPH_NAMES = names
+
+        return errors
 
 
 def get_graph(graph_id: str) -> Any:

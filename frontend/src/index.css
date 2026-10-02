@@ -29,6 +29,11 @@
 
 .sidebar {
   --sidebar-width: 240px;
+  /* One left edge for the headers, the reload row and the session rows. 19px
+     plus the 1px border lands the reload glyph at 20px, which is exactly where
+     a 16px glyph sits in the 56px collapsed panel — so the button never moves
+     when the panel folds. */
+  --sidebar-gutter: 19px;
   width: var(--sidebar-width);
   flex-shrink: 0;
   min-width: 0;
@@ -53,8 +58,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 14px 8px;
+  padding: 16px var(--sidebar-gutter) 14px;
   flex-shrink: 0;
+}
+
+/* Collapsed, the header holds the toggle alone and space-between would pin it
+   to the right edge: 6px less puts its 28px hit area where its glyph lands on
+   the same centre line as the reload icon below. */
+.sidebar-collapsed .sidebar-header {
+  padding-left: calc(var(--sidebar-gutter) - 6px);
 }
 
 .sidebar-toggle {
@@ -78,15 +90,92 @@
 }
 
 .sidebar-title {
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin: 0;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* The product name is a name, not a section label — bigger than both. */
+.sidebar-brand {
+  font-size: 1.2rem;
+}
+
+/* 16px, like the session rows — the header, the button and the list share one
+   left edge. */
+.sidebar-section-title {
+  padding: 4px var(--sidebar-gutter) 8px;
+  flex-shrink: 0;
+}
+
+/* The stack of action buttons above the session list. */
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  /* Air between the buttons and the section title below them. */
+  margin-bottom: 2cm;
+}
+
+.sidebar-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Fixed at the expanded width: the label must not reflow while the panel
+     narrows, exactly like .sidebar-content. */
+  width: calc(var(--sidebar-width) - 2px);
+  flex-shrink: 0;
+  padding: 7px var(--sidebar-gutter);
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.sidebar-action:hover:not(:disabled),
+.sidebar-action:focus-visible {
+  color: var(--text);
+}
+
+.sidebar-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.sidebar-action:disabled {
+  cursor: default;
+}
+
+.sidebar-action-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.sidebar-action-icon-spinning svg {
+  animation: sidebar-action-spin 900ms linear infinite;
+}
+
+@keyframes sidebar-action-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Collapsed, the icon alone stays clickable — only the label fades out. */
+.sidebar-action-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* Content keeps its expanded width while the panel narrows, so nothing inside
@@ -105,7 +194,8 @@
 }
 
 .sidebar-collapsed .sidebar-title,
-.sidebar-collapsed .sidebar-content {
+.sidebar-collapsed .sidebar-content,
+.sidebar-collapsed .sidebar-action-label {
   opacity: 0;
   pointer-events: none;
 }
@@ -113,7 +203,7 @@
 .sidebar-empty {
   font-size: 0.8rem;
   color: var(--muted);
-  padding: 12px 14px 16px;
+  padding: 12px var(--sidebar-gutter) 16px;
   margin: 0;
 }
 
@@ -142,6 +232,9 @@
   display: flex;
   align-items: center;
   padding: 7px 8px;
+  /* The list already contributes 8px; only the remainder is needed here so the
+     titles line up with the headers above them. */
+  padding-left: calc(var(--sidebar-gutter) - 8px);
   padding-right: 32px;
   background: transparent;
   border: none;
@@ -166,7 +259,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.875rem;
+  font-size: 0  .875rem;
   color: inherit;
 }
 
@@ -860,4 +953,59 @@
 .graph-switcher-item-active {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* ── ErrorPopup ───────────────────────────────────────────────────── */
+
+.error-popup {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  /* Above every other surface — the graph dropdown currently tops out at 20. */
+  z-index: 30;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 12px 34px 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  color: #dc2626;
+  font-size: 0.8rem;
+  cursor: pointer;
+  animation: graph-dropdown-in 0.15s ease;
+}
+
+.error-popup-line {
+  margin: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.error-popup-line + .error-popup-line {
+  margin-top: 6px;
+}
+
+.error-popup-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.error-popup-close:hover {
+  background: var(--bg);
+  color: var(--text);
 }

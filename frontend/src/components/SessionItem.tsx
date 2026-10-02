@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { Ellipsis, Pencil, Trash2 } from 'lucide-react'
 import type { Session } from '../api/client'
 
 interface SessionItemProps {
@@ -94,11 +95,7 @@ export default function SessionItem({
           onClick={toggleMenu}
           title="Действия"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="2" cy="8" r="1.5"/>
-            <circle cx="8" cy="8" r="1.5"/>
-            <circle cx="14" cy="8" r="1.5"/>
-          </svg>
+          <Ellipsis size={16} strokeWidth={2} aria-hidden="true" />
         </button>
       )}
 
@@ -113,9 +110,7 @@ export default function SessionItem({
             }}
             title="Переименовать"
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-              <path d="M11.5 1.5a1.5 1.5 0 0 1 2.12 2.12l-9 9A1.5 1.5 0 0 1 3 13H2a1 1 0 0 1-1-1v-1a1.5 1.5 0 0 1 .44-1.06l9-9zM2 13h1m0-8L4 7M1 1l4 4"/>
-            </svg>
+            <Pencil size={16} strokeWidth={2} aria-hidden="true" />
             Переименовать
           </button>
           <button
@@ -126,10 +121,7 @@ export default function SessionItem({
             }}
             title="Удалить"
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-              <path d="M5.5 1h5a1 1 0 0 1 1 1v1h2v1H2V3h2V2a1 1 0 0 1 1-1zm1 4v7m2-7v7M3 5l1 9h8l1-9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M6 5V3h4v2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <Trash2 size={16} strokeWidth={2} aria-hidden="true" />
             Удалить
           </button>
         </div>

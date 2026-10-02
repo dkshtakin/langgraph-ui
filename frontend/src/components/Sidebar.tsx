@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { PanelLeft, RefreshCw, Search, Settings } from 'lucide-react'
 import SessionItem from './SessionItem'
 import { renameSession, deleteSession, type Session } from '../api/client'
 
@@ -9,9 +10,18 @@ interface SidebarProps {
   activeSessionId: string | null
   onSelect: (sessionId: string) => void
   onRefresh: () => void
+  onReloadGraphs: () => void
+  reloadingGraphs: boolean
 }
 
-export default function Sidebar({ sessions, activeSessionId, onSelect, onRefresh }: SidebarProps) {
+export default function Sidebar({
+  sessions,
+  activeSessionId,
+  onSelect,
+  onRefresh,
+  onReloadGraphs,
+  reloadingGraphs,
+}: SidebarProps) {
   // Read synchronously so the first paint is already in the right state — no
   // collapse animation when the page loads.
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true')
@@ -56,7 +66,7 @@ export default function Sidebar({ sessions, activeSessionId, onSelect, onRefresh
       onClick={collapsed ? () => setCollapsed(false) : undefined}
     >
       <div className="sidebar-header">
-        <h2 className="sidebar-title">Запущенные графы</h2>
+        <h2 className="sidebar-title sidebar-brand">langgraph</h2>
         <button
           className="sidebar-toggle"
           onClick={(e) => {
@@ -67,22 +77,58 @@ export default function Sidebar({ sessions, activeSessionId, onSelect, onRefresh
           aria-label={toggleLabel}
           aria-expanded={!collapsed}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.5" />
-            <path d="M6.25 2.75v10.5" />
-          </svg>
+          <PanelLeft size={16} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
+
+      <div className="sidebar-actions">
+        <button
+          className="sidebar-action"
+          onClick={(e) => {
+            // Collapsed, the whole column expands the panel on click.
+            e.stopPropagation()
+            onReloadGraphs()
+          }}
+          disabled={reloadingGraphs}
+          title="Перезагрузить графы"
+          aria-label="Перезагрузить графы"
+        >
+          <span className={`sidebar-action-icon${reloadingGraphs ? ' sidebar-action-icon-spinning' : ''}`}>
+            <RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
+          </span>
+          <span className="sidebar-action-label">Перезагрузить</span>
+        </button>
+
+        <button
+          className="sidebar-action"
+          onClick={(e) => {
+            e.stopPropagation()
+          }}
+          title="Поиск"
+          aria-label="Поиск"
+        >
+          <span className="sidebar-action-icon">
+            <Search size={16} strokeWidth={2} aria-hidden="true" />
+          </span>
+          <span className="sidebar-action-label">Поиск</span>
+        </button>
+
+        <button
+          className="sidebar-action"
+          onClick={(e) => {
+            e.stopPropagation()
+          }}
+          title="Настройки"
+          aria-label="Настройки"
+        >
+          <span className="sidebar-action-icon">
+            <Settings size={16} strokeWidth={2} aria-hidden="true" />
+          </span>
+          <span className="sidebar-action-label">Настройки</span>
+        </button>
+      </div>
+
+      <h2 className="sidebar-title sidebar-section-title">Запущенные графы</h2>
 
       <div className="sidebar-content">
         {sessions.length === 0 ? (

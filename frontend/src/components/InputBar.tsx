@@ -1,4 +1,5 @@
 import { useState, KeyboardEvent, useEffect, useRef } from 'react'
+import { ArrowUp } from 'lucide-react'
 import type { StreamState } from '../types'
 
 interface InputBarProps {
@@ -67,9 +68,7 @@ export default function InputBar({ streamState, disabled, onSend, onNewChat }: I
           disabled={!sendable}
           title="Send"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 12V3m0 0l-3.5 3.5M8 3l3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <ArrowUp size={16} strokeWidth={2.5} aria-hidden="true" />
         </button>
       </div>
     </div>

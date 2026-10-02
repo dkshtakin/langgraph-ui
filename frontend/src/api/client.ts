@@ -49,13 +49,39 @@ export interface GraphInfo {
   name: string
 }
 
+function toGraphList(graphs: Record<string, { name: string }>): GraphInfo[] {
+  return Object.entries(graphs).map(([id, g]) => ({ id, name: g.name }))
+}
+
 export async function getGraphs(): Promise<GraphInfo[]> {
   const res = await fetch('/api/graphs')
   if (!res.ok) {
     throw new Error(`Failed to list graphs: ${res.status} ${res.statusText}`)
   }
   const body = (await res.json()) as { graphs: Record<string, { name: string }> }
-  return Object.entries(body.graphs).map(([id, g]) => ({ id, name: g.name }))
+  return toGraphList(body.graphs)
+}
+
+export interface GraphReloadError {
+  graph_id: string
+  error: string
+}
+
+/**
+ * Ask the server to re-read every graph from disk and swap its registry.
+ * Always 200; graphs that failed to build are missing from `graphs` and
+ * described one entry each in `errors`.
+ */
+export async function reloadGraphs(): Promise<{ graphs: GraphInfo[]; errors: GraphReloadError[] }> {
+  const res = await fetch('/api/graphs/reload', { method: 'POST' })
+  if (!res.ok) {
+    throw new Error(`Failed to reload graphs: ${res.status} ${res.statusText}`)
+  }
+  const body = (await res.json()) as {
+    graphs: Record<string, { name: string }>
+    errors: GraphReloadError[]
+  }
+  return { graphs: toGraphList(body.graphs), errors: body.errors ?? [] }
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {

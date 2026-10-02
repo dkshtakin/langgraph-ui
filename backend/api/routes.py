@@ -6,6 +6,7 @@ application factory (e.g. ``app.include_router(create_router())``).
 Endpoints
 ---------
 GET     /api/graphs                        — list registered graphs (id + name).
+POST    /api/graphs/reload                 — rescan disk and swap the graph registry in place.
 POST    /api/sessions                      — create a new session, return session_id + thread_id.
 GET    /api/sessions/{session_id}/messages — load normalized message history from checkpoints.
 POST    /api/resume/{session_id}           — send a user message and stream the graph response via SSE.
@@ -128,6 +129,26 @@ def create_router(
         graphs = list_registered_graphs()
         return {"graphs": graphs}
 
+    @router.post("/graphs/reload")
+    async def reload_graphs_endpoint() -> dict[str, Any]:
+        """Rebuild every graph from disk and swap the registry in place.
+
+        Always 200 — the status describes whether the *reload ran*, not whether
+        every graph built.  The body is what ``GET /api/graphs`` returns plus
+        ``errors``: graphs that failed to load are missing from ``graphs`` and
+        described one entry each in ``errors``.
+
+        Sessions already holding a compiled graph are unaffected; only sessions
+        created afterwards pick up the new code.
+        """
+        from backend.graph_registry import (
+            list_graphs as list_registered_graphs,
+            reload_graphs,
+        )
+
+        errors = await reload_graphs()
+        return {"graphs": list_registered_graphs(), "errors": errors}
+
     # ── session management ───────────────────────────────────────────────
 
     @router.get("/sessions")
@@ -222,11 +243,7 @@ def create_router(
         thread_id = session["thread_id"]
 
         # Lazy-compile the graph if it hasn't been created yet (restored session).
-        if "graph" not in session:
-            compiled_graph = GRAPH_REGISTRY[session["graph_id"]]
-            session["graph"] = compiled_graph.builder.compile(
-                checkpointer=mgr._checkpointer
-            )
+        _ensure_session_graph(session, mgr)
 
         graph = session["graph"]
         config = {"configurable": {"thread_id": thread_id}}
@@ -289,11 +306,7 @@ def create_router(
         thread_id = session["thread_id"]
 
         # Lazy-compile the graph if it hasn't been created yet (restored session).
-        if "graph" not in session:
-            compiled_graph = GRAPH_REGISTRY[session["graph_id"]]
-            session["graph"] = compiled_graph.builder.compile(
-                checkpointer=mgr._checkpointer
-            )
+        _ensure_session_graph(session, mgr)
 
         graph = session["graph"]
         config = {"configurable": {"thread_id": thread_id}}
@@ -445,6 +458,29 @@ def create_router(
         )
 
     return router
+
+
+# ── session graph helpers ────────────────────────────────────────────────
+
+
+def _ensure_session_graph(session: dict[str, Any], mgr: Any) -> None:
+    """Lazy-compile the session's graph on first use (restored sessions).
+
+    Raises 404 when the session's ``graph_id`` is no longer registered — a
+    reload drops graphs that fail to build, and a session that outlived one
+    must not fall through to a ``KeyError``.
+    """
+    if "graph" in session:
+        return
+
+    graph_id = session["graph_id"]
+    compiled_graph = GRAPH_REGISTRY.get(graph_id)
+    if compiled_graph is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Graph '{graph_id}' is no longer registered.",
+        )
+    session["graph"] = compiled_graph.builder.compile(checkpointer=mgr._checkpointer)
 
 
 # ── SSE helpers ──────────────────────────────────────────────────────────
