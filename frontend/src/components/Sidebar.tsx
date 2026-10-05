@@ -66,7 +66,7 @@ export default function Sidebar({
       onClick={collapsed ? () => setCollapsed(false) : undefined}
     >
       <div className="sidebar-header">
-        <h2 className="sidebar-title sidebar-brand">langgraph</h2>
+        <h2 className="sidebar-title sidebar-brand">langgraph-ui</h2>
         <button
           className="sidebar-toggle"
           onClick={(e) => {

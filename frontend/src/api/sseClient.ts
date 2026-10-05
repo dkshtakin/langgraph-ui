@@ -146,7 +146,7 @@ export function streamResume(
                 if (eventType === 'answer' || eventType === 'reasoning') {
                   const content = (parsed.data as any)?.content as string | undefined
                   if (content !== undefined) {
-                    console.log('[sseClient] chunk:', eventType, content.slice(0, 50))
+                    // console.log('[sseClient] chunk:', eventType, content.slice(0, 50))
                     callbacks.onChunk?.(eventType, content)
                   }
                 } else if (eventType === 'tool_call' || eventType === 'invalid_tool_call') {
