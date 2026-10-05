@@ -31,3 +31,4 @@ def pause_node(state: FlowState) -> dict:
     if state.get("stage", "dialog") == "dialog":
         interrupt({"reason": "waiting_for_user_input"})
     return {"messages": [], "result": "", "stage": "next"}
+

@@ -4,13 +4,6 @@ Extracts ``reasoning``, ``answer`` chunks from a stream of text tokens that may
 contain partial, split, or multi-chunk reasoning delimiters without losing any
 characters.
 
-Dual-length safety guarantee
-----------------------------
-* ``N = 17`` (start tag length), ``K = 10`` (end tag length)
-* Evict safe prefixes at ``len(buf) >= N`` / ``len(buf) >= K``, keeping the last
-  ``N-1`` / ``K-1`` characters in the buffer — enough to reconstruct any partial
-  delimiter.
-
 Buffer contract
 ---------------
 ``parse_reasoning`` is a **state reducer**. It always accepts the *current*
@@ -21,7 +14,7 @@ subsequent calls as the buffer grows.
 
 **Correct usage pattern:**
 
-1. Initialise: ``output_buffer = ""``, ``in_reasoning = False``
+1. Initialize: ``output_buffer = ""``, ``in_reasoning = False``
 2. For every incoming chunk, **always reassign**:
    ``output_buffer, in_reasoning, new_chunks = parse_reasoning(chunk, output_buffer, in_reasoning)``
    Do not pass an old or empty buffer — the function expects the *accumulated*
@@ -34,13 +27,15 @@ This pattern is implemented in ``streaming.py`` (reference impl) and
 ``tests/test_streaming_parser.py`` exercise it explicitly.
 """
 
-from __future__ import annotations
 
-# start_reasoning_tag: str = "<|channel>thought"  # 17 chars
-start_reasoning_tag: str = "<think>"
-# end_reasoning_tag: str = "<channel|>"  # 10 chars
-end_reasoning_tag: str = "</think>"
-N: int = len(start_reasoning_tag)  # noqa: N806 — tag length
+from __future__ import annotations
+from dotenv import load_dotenv
+import os
+
+
+start_reasoning_tag: str = os.environ.get('START_REASONING_TAG', '<think>')
+end_reasoning_tag: str = os.environ.get('END_REASONING_TAG', '</think>')
+N: int = len(start_reasoning_tag)
 K: int = len(end_reasoning_tag)
 
 
@@ -94,7 +89,7 @@ def parse_reasoning(
                     output_buffer = output_buffer[cutoff:]
 
     else:
-        # ── inside reasoning ───────────────────────────────────────
+        # inside reasoning
         if len(output_buffer) >= K:
             idx = output_buffer.find(end_reasoning_tag)
             if idx != -1:

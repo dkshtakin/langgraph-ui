@@ -1,14 +1,10 @@
-# Graph runtime
 langchain>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.0
 pydantic>=2.0
 python-dotenv>=1.0
-
-# HTTP / SSE endpoint
 fastapi>=0.100
 uvicorn[standard]>=0.23
-
 pytest
 pytest-asyncio
 aiosqlite

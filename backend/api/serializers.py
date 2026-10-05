@@ -114,15 +114,5 @@ def serialize_message(message: Any) -> dict[str, Any]:
 
 def serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
     """Normalise a list of LangChain messages to API schema.
-
-    Parameters
-    ----------
-    messages : list[AnyMessage]
-        Raw messages from a LangGraph checkpoint.
-
-    Returns
-    -------
-    list[dict]
-        Normalised message dicts sorted in chronological order (as stored).
     """
     return [serialize_message(m) for m in messages]

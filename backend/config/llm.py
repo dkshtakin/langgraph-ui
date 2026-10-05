@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import os
-
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 
-# Shared LLM instance — configured once, reused across graphs.
+load_dotenv()
+
+
+# Default LLM instance can be used by multiple graphs
 chat = ChatOpenAI(
-    base_url="http://127.0.0.1:8081/v1",
-    api_key=os.environ.get("LLM_API_KEY", "empty"),
-    model="KAT-Coder-V2.5-Dev-APEX-I-Compact",
+    base_url=os.environ.get('LLM_BASE_URL', 'http://127.0.0.1:8081/v1') ,
+    api_key=os.environ.get('LLM_API_KEY', 'empty'),
+    model=os.environ.get('LLM_NAME', ''),
     streaming=True,
     extra_body={
         "chat_template_kwargs": {

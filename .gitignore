@@ -1,7 +1,7 @@
 claude*.sh
 CLAUDE.md
-PLAN.md
-todo.md
+CONTEXT.md
+.env
 .claude
 .scratch
 __pycache__
