@@ -19,9 +19,7 @@ from langgraph.types import Command, interrupt
 from typing_extensions import Annotated
 
 
-# ---------------------------------------------------------------------------
 # Minimal test graph — same pattern as pause_node in common.py
-# ---------------------------------------------------------------------------
 
 
 class _MsgState(TypedDict):
@@ -61,9 +59,7 @@ def interrupt_graph():
     return _test_builder.compile(checkpointer=InMemorySaver())
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 async def collect_events(graph, input_state, config):
@@ -78,9 +74,7 @@ async def collect_events(graph, input_state, config):
     return events, interrupted, interrupts_list
 
 
-# ---------------------------------------------------------------------------
 # Tests
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio

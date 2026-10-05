@@ -5,7 +5,6 @@ contain partial, split, or multi-chunk reasoning delimiters without losing any
 characters.
 
 Buffer contract
----------------
 ``parse_reasoning`` is a **state reducer**. It always accepts the *current*
 accumulated buffer, appends new text to it, and returns an updated buffer plus
 any newly emitted chunks. It processes at most one tag boundary per call — if a
@@ -65,7 +64,7 @@ def parse_reasoning(
     output_buffer += text
 
     if not in_reasoning:
-        # ── outside reasoning ──────────────────────────────────────
+        # outside reasoning
         if len(output_buffer) >= N:
             idx = output_buffer.find(start_reasoning_tag)
             if idx != -1:

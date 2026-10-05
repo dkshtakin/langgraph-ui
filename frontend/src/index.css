@@ -479,7 +479,7 @@
   max-width: 100%;
 }
 
-/* ── Markdown answers ─────────────────────────────────────────────── */
+/* Markdown answers */
 
 /* The bubble keeps line breaks for plain text; block layout does its own. */
 .markdown-body {
@@ -589,7 +589,7 @@
   margin: 12px 0;
 }
 
-/* ── Строки reasoning и вызовов инструментов ─────────────────────── */
+/* Строки reasoning и вызовов инструментов */
 
 .row {
   width: 100%;
@@ -854,7 +854,7 @@
   cursor: not-allowed;
 }
 
-/* ── GraphSwitcher ────────────────────────────────────────────────── */
+/* GraphSwitcher */
 
 .graph-switcher {
   position: relative;
@@ -955,7 +955,7 @@
   font-weight: 600;
 }
 
-/* ── ErrorPopup ───────────────────────────────────────────────────── */
+/* ErrorPopup */
 
 .error-popup {
   position: fixed;

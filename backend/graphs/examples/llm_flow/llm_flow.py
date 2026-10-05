@@ -19,9 +19,7 @@ from backend.config.llm import chat
 from backend.graphs.examples.common import FlowState, pause_node
 
 
-# ---------------------------------------------------------------------------
 # Node implementations
-# ---------------------------------------------------------------------------
 
 
 def real_llm_node(state: FlowState) -> dict:
@@ -34,9 +32,7 @@ def real_llm_node(state: FlowState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # Graph builder
-# ---------------------------------------------------------------------------
 
 
 def build() -> object:
@@ -56,8 +52,6 @@ def build() -> object:
     return builder.compile()
 
 
-# ---------------------------------------------------------------------------
 # Graph identity (for registry auto-discovery)
-# ---------------------------------------------------------------------------
 
 name: str = "LLM Flow"

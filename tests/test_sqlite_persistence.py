@@ -27,9 +27,7 @@ from backend.persistence import (
 from backend.session_manager import SessionManager
 
 
-# ---------------------------------------------------------------------------
 # Minimal test graph — mirrors the book_planner interrupt behaviour.
-# ---------------------------------------------------------------------------
 
 
 class _TestState(TypedDict):
@@ -81,9 +79,7 @@ def session_manager_with_sqlite(sqlite_saver):
         GRAPH_REGISTRY[_TEST_GRAPH_ID] = original
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 def _ensure_tables(conn: sqlite3.Connection) -> None:
@@ -91,9 +87,7 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
     _create_tables(conn)
 
 
-# ---------------------------------------------------------------------------
 # Session creation persists to SQLite
-# ---------------------------------------------------------------------------
 
 
 def test_create_session_persists_to_sqlite(session_manager_with_sqlite, sqlite_saver):
@@ -127,9 +121,7 @@ def test_session_title_format(session_manager_with_sqlite):
     assert len(parts[1]) == 6, f"Expected 6-char hash, got {parts[1]!r}"
 
 
-# ---------------------------------------------------------------------------
 # Restore on startup
-# ---------------------------------------------------------------------------
 
 
 def test_restore_sessions_from_sqlite(sqlite_saver):
@@ -182,9 +174,7 @@ def test_restored_session_can_resume(sqlite_saver):
         GRAPH_REGISTRY[_TEST_GRAPH_ID] = original
 
 
-# ---------------------------------------------------------------------------
 # Status computation
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -285,9 +275,7 @@ async def test_status_paused_independent_of_other_sessions(sqlite_saver):
         GRAPH_REGISTRY[_TEST_GRAPH_ID] = original
 
 
-# ---------------------------------------------------------------------------
 # Delete removes both checkpoint and DB record
-# ---------------------------------------------------------------------------
 
 
 def test_delete_session_removes_db_record(session_manager_with_sqlite, sqlite_saver):
@@ -317,9 +305,7 @@ def test_list_sessions_includes_all(session_manager_with_sqlite):
     assert s2["session_id"] in ids
 
 
-# ---------------------------------------------------------------------------
 # Direct persistence CRUD helpers
-# ---------------------------------------------------------------------------
 
 
 def test_format_title():

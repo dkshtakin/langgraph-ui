@@ -77,7 +77,7 @@ def _format_title(graph_name: str, created_at: float) -> str:
     return f"{graph_name} {short_hash}"
 
 
-# ── CRUD ───────────────────────────────────────────────────────────────────
+# CRUD
 
 
 def create_session(

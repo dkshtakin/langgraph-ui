@@ -19,9 +19,7 @@ from langgraph.graph import END, START, StateGraph
 from backend.graphs.examples.common import FlowState, pause_node
 
 
-# ---------------------------------------------------------------------------
 # Node implementations
-# ---------------------------------------------------------------------------
 
 
 def fake_llm_node(state: FlowState) -> dict:
@@ -33,9 +31,7 @@ def fake_llm_node(state: FlowState) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # Graph builder
-# ---------------------------------------------------------------------------
 
 
 def build() -> object:
@@ -55,8 +51,6 @@ def build() -> object:
     return builder.compile()
 
 
-# ---------------------------------------------------------------------------
 # Graph identity (for registry auto-discovery)
-# ---------------------------------------------------------------------------
 
 name: str = "Test Flow"

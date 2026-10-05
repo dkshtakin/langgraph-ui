@@ -42,13 +42,11 @@ def serialize_message(message: Any) -> dict[str, Any]:
     """Normalise a single LangChain message to API schema.
 
     Parameters
-    ----------
     message : AnyMessage
         A LangChain message instance (SystemMessage, HumanMessage, AIMessage,
         ToolMessage, etc.).
 
     Returns
-    -------
     dict
         Normalised message with keys ``role``, ``text``, ``reasoning``,
         ``toolCalls``.

@@ -21,7 +21,7 @@ from backend.streaming_parser import (
 )
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# helpers
 
 
 def _feed_chunks(buf: str, chunks: list[str]):
@@ -39,7 +39,7 @@ def _feed_chunks(buf: str, chunks: list[str]):
     return buf, in_reasoning, emitted
 
 
-# ── partial start tag split across 2+ chunks ────────────────────────────────
+# partial start tag split across 2+ chunks
 
 
 def test_partial_start_tag_split():
@@ -55,7 +55,7 @@ def test_partial_start_tag_split():
     assert buf == "", "Buffer should be empty after emitting answer text"
 
 
-# ── text before partial start tag ────────────────────────────────────────────
+# text before partial start tag
 
 
 def test_text_before_partial_tag():
@@ -95,7 +95,7 @@ def test_text_before_partial_tag():
     assert "Answer text" in answer_after_reasoning
 
 
-# ── end tag split across 3+ chunks ───────────────────────────────────────────
+# end tag split across 3+ chunks
 
 
 def test_end_tag_split_three_chunks():
@@ -137,7 +137,7 @@ def test_end_tag_split_three_with_reasoning_text():
     assert len(reasoning_chunks) >= 1
 
 
-# ── long text with no tags ───────────────────────────────────────────────────
+# long text with no tags
 
 
 def test_long_text_no_tags():
@@ -174,7 +174,7 @@ def test_long_text_no_tags_single_chunk():
     assert flushed[0]["content"] == short_text
 
 
-# ── character-by-character streaming ─────────────────────────────────────────
+# character-by-character streaming
 
 
 def test_character_by_character():
@@ -209,7 +209,7 @@ def test_character_by_character():
     assert cbc_combined["reasoning"] == bulk_combined["reasoning"], "Reasoning text must match"
 
 
-# ── flush_buffer ─────────────────────────────────────────────────────────────
+# flush_buffer
 
 
 def test_flush_empty_buffer():
@@ -262,7 +262,7 @@ def test_flush_resolves_every_tag_left_in_buffer():
     assert end_reasoning_tag not in answer
 
 
-# ── consecutive reasoning blocks ────────────────────────────────────────────
+# consecutive reasoning blocks
 
 
 def test_consecutive_reasoning_blocks():
@@ -310,7 +310,7 @@ def test_consecutive_reasoning_blocks():
     assert "after" in answer_text
 
 
-# ── constants ────────────────────────────────────────────────────────────────
+# constants
 
 
 def test_tag_lengths():

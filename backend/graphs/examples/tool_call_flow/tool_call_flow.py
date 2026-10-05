@@ -37,9 +37,7 @@ def today_tool() -> str:
 chat = chat.bind_tools([today_tool])
 
 
-# ---------------------------------------------------------------------------
 # Graph State
-# ---------------------------------------------------------------------------
 
 
 class ToolFlowState(TypedDict):
@@ -48,9 +46,7 @@ class ToolFlowState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
 
 
-# ---------------------------------------------------------------------------
 # Node implementations
-# ---------------------------------------------------------------------------
 
 
 def _init_node(state: ToolFlowState) -> dict:
@@ -70,9 +66,7 @@ def _llm_call_node(state: ToolFlowState) -> dict:
     return {"messages": [response]}
 
 
-# ---------------------------------------------------------------------------
 # Graph builder
-# ---------------------------------------------------------------------------
 
 
 def build() -> object:
@@ -94,8 +88,6 @@ def build() -> object:
     return builder.compile()
 
 
-# ---------------------------------------------------------------------------
 # Graph identity (for registry auto-discovery)
-# ---------------------------------------------------------------------------
 
 name: str = "Tool Call Flow"

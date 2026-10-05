@@ -4,7 +4,6 @@
 application factory (e.g. ``app.include_router(create_router())``).
 
 Endpoints
----------
 GET     /api/graphs                        — list registered graphs (id + name).
 POST    /api/graphs/reload                 — rescan disk and swap the graph registry in place.
 POST    /api/sessions                      — create a new session, return session_id + thread_id.
@@ -61,7 +60,6 @@ def create_router(
     """Build and return the API router with all endpoints.
 
     Parameters
-    ----------
     session_manager_factory : callable | SessionManager | None
         A factory function returning a SessionManager (production — called
         lazily inside each request so AsyncSqliteSaver can acquire its
@@ -119,7 +117,7 @@ def create_router(
             return result
         return obj
 
-    # ── graph listing ────────────────────────────────────────────────────
+    # graph listing
 
     @router.get("/graphs")
     async def list_graphs() -> dict[str, Any]:
@@ -149,7 +147,7 @@ def create_router(
         errors = await reload_graphs()
         return {"graphs": list_registered_graphs(), "errors": errors}
 
-    # ── session management ───────────────────────────────────────────────
+    # session management
 
     @router.get("/sessions")
     async def list_sessions(
@@ -176,7 +174,6 @@ def create_router(
         """Create a new session for *body.graph_id*.
 
         Returns
-        -------
         dict with ``session_id``, ``thread_id``, ``graph_id``, and ``graph_name``.
         """
         if not GRAPH_REGISTRY:
@@ -211,7 +208,6 @@ def create_router(
         """Delete a session and its checkpoint data.
 
         Returns
-        -------
         dict with ``deleted`` set to ``True`` on success.
         """
         session = mgr.get_session(session_id)
@@ -291,7 +287,6 @@ def create_router(
         completion after streaming any ``answer``/``reasoning`` chunks.
 
         Parameters
-        ----------
         session_id : str
             The session ID returned by ``POST /api/sessions``.
         body : ResumeRequest
@@ -460,7 +455,7 @@ def create_router(
     return router
 
 
-# ── session graph helpers ────────────────────────────────────────────────
+# session graph helpers
 
 
 def _ensure_session_graph(session: dict[str, Any], mgr: Any) -> None:
@@ -483,7 +478,7 @@ def _ensure_session_graph(session: dict[str, Any], mgr: Any) -> None:
     session["graph"] = compiled_graph.builder.compile(checkpointer=mgr._checkpointer)
 
 
-# ── SSE helpers ──────────────────────────────────────────────────────────
+# SSE helpers
 
 
 def _format_sse(data: dict[str, Any]) -> str:

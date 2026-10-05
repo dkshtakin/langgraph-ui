@@ -22,9 +22,7 @@ from backend.api.routes import create_router
 from tests._sse_helpers import parse_sse_events
 
 
-# ---------------------------------------------------------------------------
 # Minimal test graph — mirrors the book_planner interrupt behaviour.
-# ---------------------------------------------------------------------------
 
 
 class _MsgState(TypedDict):
@@ -86,9 +84,7 @@ def shared_session_manager():
     return _shared_mgr
 
 
-# ---------------------------------------------------------------------------
 # GET /api/graphs
-# ---------------------------------------------------------------------------
 
 
 def test_get_graphs_returns_dict(client):
@@ -113,9 +109,7 @@ def test_get_graphs_contains_registered(graphs):
     assert graphs["test_flow"]["name"] == "Test Flow"
 
 
-# ---------------------------------------------------------------------------
 # GET /api/sessions
-# ---------------------------------------------------------------------------
 
 
 def test_get_sessions_returns_list(client):
@@ -143,9 +137,7 @@ def test_get_sessions_fields(client):
     assert required.issubset(row.keys()), f"Missing fields: {required - row.keys()}"
 
 
-# ---------------------------------------------------------------------------
 # POST /api/sessions
-# ---------------------------------------------------------------------------
 
 
 def test_post_sessions_creates_session(client):
@@ -183,9 +175,7 @@ def test_post_sessions_503_when_no_graphs_registered(client):
         GRAPH_REGISTRY.update(saved)
 
 
-# ---------------------------------------------------------------------------
 # POST /api/resume/{session_id}
-# ---------------------------------------------------------------------------
 
 
 def test_post_resume_404_on_unknown_session(client):
@@ -234,9 +224,7 @@ def test_integration_session_lifecycle(client):
     assert len(done_events) == 1, "Should emit exactly one done event"
 
 
-# ---------------------------------------------------------------------------
 # DELETE /api/sessions/{session_id}
-# ---------------------------------------------------------------------------
 
 
 def test_delete_session_404_on_unknown_session(client):
@@ -337,9 +325,7 @@ def test_resume_emits_tool_call_event(client, monkeypatch):
     assert "\\u" not in resp.text
 
 
-# ---------------------------------------------------------------------------
 # PATCH /api/sessions/{session_id} — rename
-# ---------------------------------------------------------------------------
 
 
 def test_patch_rename_session_404_on_unknown(client):
@@ -386,9 +372,7 @@ def test_patch_rename_session_updates_created_and_updated(client):
     assert after_data["updated_at"] > before_updated, "updated_at must increase after rename"
 
 
-# ---------------------------------------------------------------------------
 # GET /api/sessions/{session_id}/messages
-# ---------------------------------------------------------------------------
 
 
 def test_get_session_messages_404_on_unknown_session(client):

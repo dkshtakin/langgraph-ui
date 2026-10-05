@@ -19,10 +19,8 @@ from langgraph.types import Command, interrupt
 from backend.session_manager import SessionManager
 
 
-# ---------------------------------------------------------------------------
 # Minimal test graph — mirrors the interrupt behaviour of book_planner
 # without requiring a real LLM.
-# ---------------------------------------------------------------------------
 
 
 class _SessionState(TypedDict):
@@ -78,9 +76,7 @@ def session_manager():
         GRAPH_REGISTRY[_TEST_GRAPH_ID] = original
 
 
-# ---------------------------------------------------------------------------
 # Session creation
-# ---------------------------------------------------------------------------
 
 
 def test_create_session_returns_id(session_manager):
@@ -108,9 +104,7 @@ def test_create_session_returns_thread_id(session_manager):
     assert stored["thread_id"] == result["thread_id"]
 
 
-# ---------------------------------------------------------------------------
 # Thread ID uniqueness
-# ---------------------------------------------------------------------------
 
 
 def test_unique_thread_ids(session_manager):
@@ -126,9 +120,7 @@ def test_no_duplicate_sessions_same_thread_id(session_manager):
     assert s1["thread_id"] != s2["thread_id"]
 
 
-# ---------------------------------------------------------------------------
 # Interrupt / pause
-# ---------------------------------------------------------------------------
 
 
 def test_graph_pauses_on_interrupt(session_manager):
@@ -141,9 +133,7 @@ def test_graph_pauses_on_interrupt(session_manager):
     assert "__interrupt__" in result
 
 
-# ---------------------------------------------------------------------------
 # Resume pattern
-# ---------------------------------------------------------------------------
 
 
 def test_resume_continues_graph(session_manager):
@@ -164,9 +154,7 @@ def test_resume_continues_graph(session_manager):
     assert "__interrupt__" not in resume_result
 
 
-# ---------------------------------------------------------------------------
 # Cleanup / deletion
-# ---------------------------------------------------------------------------
 
 
 def test_delete_session_removes_state(session_manager):
@@ -193,9 +181,7 @@ def test_deleted_session_cannot_resume(session_manager):
         session_manager.resume(session_id, Command(resume="should fail"))
 
 
-# ---------------------------------------------------------------------------
 # Session lookup
-# ---------------------------------------------------------------------------
 
 
 def test_get_session_returns_none_for_unknown(session_manager):
@@ -203,9 +189,7 @@ def test_get_session_returns_none_for_unknown(session_manager):
     assert session_manager.get_session("unknown") is None
 
 
-# ---------------------------------------------------------------------------
 # Rename / title update
-# ---------------------------------------------------------------------------
 
 
 def test_rename_session_updates_title(session_manager):

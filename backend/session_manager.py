@@ -9,7 +9,6 @@ On construction the manager restores any previously saved sessions from the
 database; graphs are compiled lazily on first use.
 
 Usage
------
 >>> from backend.session_manager import SessionManager
 >>> mgr = SessionManager()
 >>> session = mgr.create_session("book_planner")
@@ -44,7 +43,6 @@ class SessionManager:
         """Initialise the session manager.
 
         Parameters
-        ----------
         checkpointer : Checkpointer | None
             A LangGraph checkpointer instance.  If ``None``, an
             :class:`InMemorySaver` is created (intended for tests).
@@ -74,13 +72,12 @@ class SessionManager:
 
         return get_db()
 
-    # ── session lifecycle ────────────────────────────────────────────────
+    # session lifecycle
 
     def create_session(self, graph_id: str | None = None) -> dict[str, str]:
         """Create a new session for *graph_id*.
 
         Returns
-        -------
         dict with keys ``session_id``, ``thread_id``, ``graph_id``, and
         ``graph_name``.
         """
@@ -182,7 +179,7 @@ class SessionManager:
             except Exception as exc:
                 logger.warning("Failed to delete session record %s: %s", session_id, exc)
 
-    # ── restore on startup ───────────────────────────────────────────────
+    # restore on startup
 
     def _restore_sessions(self) -> None:
         """Load persisted session metadata from SQLite (production only)."""
@@ -216,13 +213,12 @@ class SessionManager:
 
         logger.info("Restored %d session(s) from persistence store.", len(rows))
 
-    # ── resume / invoke ──────────────────────────────────────────────────
+    # resume / invoke
 
     def resume(self, thread_id: str, value: Any) -> dict[str, Any]:
         """Resume (or start) graph execution for *thread_id*.
 
         Parameters
-        ----------
         thread_id : str
             The thread ID returned by :py:meth:`create_session`.
         value : Any
@@ -230,7 +226,6 @@ class SessionManager:
             resume value on subsequent calls.
 
         Returns
-        -------
         dict
             Graph output including any ``__interrupt__`` key if the graph
             paused.
@@ -253,7 +248,7 @@ class SessionManager:
         config = {"configurable": {"thread_id": thread_id}}
         return session["graph"].invoke(value, config=config)
 
-    # ── listing ──────────────────────────────────────────────────────────
+    # listing
 
     def _serialize_session(self, session: dict[str, Any]) -> dict[str, Any]:
         """Return a flat metadata dict for a session row.
@@ -288,7 +283,7 @@ class SessionManager:
         rows.sort(key=lambda r: r["created_at"], reverse=True)
         return rows
 
-    # ── status helpers ───────────────────────────────────────────────────
+    # status helpers
 
     async def get_session_status(self, session_id: str) -> str | None:
         """Return the computed status for *session_id*, or ``None`` if not found.

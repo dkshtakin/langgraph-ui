@@ -71,7 +71,7 @@ def _get_session_manager():
 app = FastAPI(title="Book Planner API")
 app.include_router(create_router(session_manager_factory=_get_session_manager))
 
-# ── SPA static file serving ────────────────────────────────────────────────
+# SPA static file serving
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 

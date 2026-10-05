@@ -33,9 +33,7 @@ def client():
     return TestClient(app)
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 def _llm_available() -> bool:
@@ -47,9 +45,7 @@ def _llm_available() -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
 # Session creation
-# ---------------------------------------------------------------------------
 
 
 def test_create_test_flow_session(client):
@@ -74,9 +70,7 @@ def test_create_llm_flow_session(client):
     assert data["thread_id"]
 
 
-# ---------------------------------------------------------------------------
 # Interrupt (pause) via POST /api/resume
-# ---------------------------------------------------------------------------
 
 
 def test_resume_raises_404_for_unknown_session(client):
@@ -114,9 +108,7 @@ def test_resume_llm_flow_emits_interrupt_event(client):
     assert any("interrupt" in e for e in events), "Expected an interrupt SSE event"
 
 
-# ---------------------------------------------------------------------------
 # Resume → fake_llm / real_llm response (full API cycle)
-# ---------------------------------------------------------------------------
 
 
 def test_resume_test_flow_done_event(client):
@@ -166,9 +158,7 @@ def test_resume_llm_flow_streaming_and_done(client):
     assert len(streaming_chunks) > 0, "Should emit at least one answer/reasoning chunk"
 
 
-# ---------------------------------------------------------------------------
 # Integration: full lifecycle via API only (no direct SessionManager calls)
-# ---------------------------------------------------------------------------
 
 
 def test_full_lifecycle_create_pause_resume(client):
@@ -218,9 +208,7 @@ def test_full_lifecycle_llm_flow(client):
     assert len(streaming_chunks) > 0, "Should emit at least one answer/reasoning chunk"
 
 
-# ---------------------------------------------------------------------------
 # Cleanup: delete session removes state via API
-# ---------------------------------------------------------------------------
 
 
 def test_delete_session_after_resume(client):
@@ -270,9 +258,7 @@ def test_delete_llm_flow_session_after_resume(client):
     assert mgr.get_session(session_id) is None
 
 
-# ---------------------------------------------------------------------------
 # tool_call_flow — real LLM + ToolNode → emits tool_call SSE event
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _llm_available(), reason="LLM server not available at 127.0.0.1:8081")

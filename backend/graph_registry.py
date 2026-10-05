@@ -64,7 +64,6 @@ def _load_graph(
     """Import one graph folder and compile it.
 
     Returns
-    -------
     tuple
         ``(loaded, error)``.  On success *loaded* is
         ``(graph_id, compiled, display_name)`` and *error* is ``None``; on
@@ -107,7 +106,6 @@ def _discover() -> tuple[Dict[str, Any], Dict[str, str], list[Dict[str, str]]]:
     """Walk every tier folder and register each graph folder found.
 
     Returns
-    -------
     tuple
         (registry, names, errors) where ``names`` maps id → display name and
         ``errors`` holds ``{"graph_id": ..., "error": ...}`` for every graph
@@ -186,7 +184,6 @@ async def reload_graphs(graph_id: str | None = None) -> list[Dict[str, str]]:
     with, and a stream in flight is not interrupted.
 
     Returns
-    -------
     list of dict
         One ``{"graph_id": ..., "error": ...}`` entry per graph that failed to
         load; empty when everything rebuilt.  Failed graphs are *absent* from

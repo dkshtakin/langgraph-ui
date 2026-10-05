@@ -23,9 +23,7 @@ def _example_graph_ids() -> list[str]:
     return sorted(p.name for p in EXAMPLES_DIR.iterdir() if (p / f"{p.name}.py").is_file())
 
 
-# ---------------------------------------------------------------------------
 # Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -36,9 +34,7 @@ def registry():
     return GRAPH_REGISTRY
 
 
-# ---------------------------------------------------------------------------
 # Registry tests
-# ---------------------------------------------------------------------------
 
 
 def test_registry_not_empty(registry):
@@ -67,9 +63,7 @@ def test_every_registered_graph_has_a_name():
         )
 
 
-# ---------------------------------------------------------------------------
 # Compilation tests
-# ---------------------------------------------------------------------------
 
 
 def test_get_graph(registry):

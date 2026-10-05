@@ -37,7 +37,6 @@ def stream_langgraph_events(
     through the reasoning parser, and emits typed SSE events.
 
     Yields
-    ------
     dict with keys ``event`` (str) and ``data`` (dict).
     """
     from langgraph.types import StreamMode
@@ -63,7 +62,7 @@ def stream_langgraph_events(
         if not isinstance(msg_data, dict):
             continue
 
-        # ── text-delta → parse_reasoning ───────────────────────────
+        # text-delta → parse_reasoning
         if msg_data.get("event") == "content-block-delta":
             delta = msg_data.get("delta", {}) or {}
             if delta.get("type") == "text-delta":
@@ -75,7 +74,7 @@ def stream_langgraph_events(
                 for chunk in new_chunks:
                     yield _make_event(chunk["type"], {"content": chunk["content"]})
 
-        # ── content-block-finish → flush + tool call ───────────────
+        # content-block-finish → flush + tool call
         elif msg_data.get("event") == "content-block-finish":
             output_buffer, in_reasoning, flushed = flush_buffer(
                 output_buffer, in_reasoning
