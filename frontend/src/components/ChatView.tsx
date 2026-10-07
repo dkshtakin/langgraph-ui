@@ -1,18 +1,18 @@
 import { useRef, useEffect } from 'react'
 import MessageBlock from './MessageBlock'
-import type { AssistantMessage, ChatMessage, StreamState } from '../types'
+import type { ChatMessage } from '../types'
 
 interface ChatViewProps {
   messages: ChatMessage[]
-  streamingMessages: AssistantMessage[]
-  streamState: StreamState
+  /** True while a run is still writing the last message. */
+  live: boolean
 }
 
 /* Насколько близко к низу ещё считается, что мы «следуем» за лентой. Выше —
    значит пользователь ушёл читать историю, и автоскролл надо отпустить. */
 const STICK_TO_BOTTOM_PX = 40
 
-export default function ChatView({ messages, streamingMessages, streamState }: ChatViewProps) {
+export default function ChatView({ messages, live }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<HTMLElement | null>(null)
   const stickyRef = useRef(true)
@@ -34,7 +34,7 @@ export default function ChatView({ messages, streamingMessages, streamState }: C
     return () => scroller.removeEventListener('scroll', onScroll)
   }, [])
 
-  /* Смена сессии подменяет всю ленту — к ней снова прилипаем, независимо от
+  /* Смена треда подменяет всю ленту — к ней снова прилипаем, независимо от
      того, где пользователь был в предыдущей. */
   const firstMessageId = messages[0]?.id ?? null
   useEffect(() => {
@@ -45,21 +45,15 @@ export default function ChatView({ messages, streamingMessages, streamState }: C
     const scroller = scrollerRef.current
     if (!scroller || !stickyRef.current) return
     scroller.scrollTop = scroller.scrollHeight
-  }, [messages, streamingMessages])
+  }, [messages, live])
 
-  const hasLiveStream = streamState === 'streaming' || streamState === 'interrupted' || streamState === 'initializing'
+  const lastIndex = messages.length - 1
 
   return (
     <div className="chat-view">
       <div className="messages-list">
-        {messages.map((msg) => (
-          <MessageBlock key={msg.id} {...msg} />
-        ))}
-
-        {/* Live assistant messages — same renderer, plus the flag that drives
-            the auto-expanding trailing row. */}
-        {hasLiveStream && streamingMessages.map((msg) => (
-          <MessageBlock key={msg.id} {...msg} isLive />
+        {messages.map((msg, i) => (
+          <MessageBlock key={msg.id} {...msg} isLive={live && i === lastIndex} />
         ))}
 
         <div ref={bottomRef} />

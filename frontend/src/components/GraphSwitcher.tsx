@@ -1,22 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
-import type { GraphInfo } from '../api/client'
+import { dotClass } from '../streamState'
+import type { StreamState } from '../types'
 
 interface Props {
   currentGraphId: string
-  sessionStatus?: string
-  streamState?: 'idle' | 'initializing' | 'streaming' | 'interrupted' | 'done'
-  graphs: GraphInfo[]
+  streamState: StreamState
+  /** The thread the dot is reporting on is in the server's `error` state. */
+  failed?: boolean
+  graphs: string[]
   onSelect: (graphId: string) => void
 }
 
-export default function GraphSwitcher({ currentGraphId, sessionStatus, streamState, graphs, onSelect }: Props) {
+export default function GraphSwitcher({ currentGraphId, streamState, failed, graphs, onSelect }: Props) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-
-  const currentGraph = graphs.find((g) => g.id === currentGraphId)
-  const isStreaming = streamState === 'streaming' || streamState === 'initializing'
-  const isPaused = sessionStatus === 'paused'
-  const isCompleted = sessionStatus === 'completed'
 
   useEffect(() => {
     if (!open) return
@@ -35,19 +32,20 @@ export default function GraphSwitcher({ currentGraphId, sessionStatus, streamSta
         className="graph-switcher-btn"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="graph-switcher-label">{currentGraph?.name ?? currentGraphId}</span>
-        <span className={`graph-switcher-dot ${isStreaming ? 'dot-streaming' : isPaused ? 'dot-paused' : isCompleted ? 'dot-completed' : 'dot-idle'}`} />
+        {/* The graph id is the name: `langgraph.json` keys are already readable. */}
+        <span className="graph-switcher-label">{currentGraphId}</span>
+        <span className={`graph-switcher-dot ${dotClass(streamState, !!failed)}`} />
       </button>
 
       {open && (
         <div className="graph-switcher-dropdown">
-          {graphs.map((g) => (
+          {graphs.map((id) => (
             <button
-              key={g.id}
-              className={`graph-switcher-item${g.id === currentGraphId ? ' graph-switcher-item-active' : ''}`}
-              onClick={() => { onSelect(g.id); setOpen(false) }}
+              key={id}
+              className={`graph-switcher-item${id === currentGraphId ? ' graph-switcher-item-active' : ''}`}
+              onClick={() => { onSelect(id); setOpen(false) }}
             >
-              {g.name}
+              {id}
             </button>
           ))}
         </div>

@@ -1,26 +1,28 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { PanelLeft, RefreshCw, Search, Settings } from 'lucide-react'
-import SessionItem from './SessionItem'
-import { renameSession, deleteSession, type Session } from '../api/client'
+import ThreadItem from './ThreadItem'
+import type { Thread } from '../api/agentServer'
 
 const COLLAPSED_STORAGE_KEY = 'sidebar-collapsed'
 
 interface SidebarProps {
-  sessions: Session[]
-  activeSessionId: string | null
-  onSelect: (sessionId: string) => void
+  threads: Thread[]
+  activeThreadId: string | null
+  onSelect: (threadId: string | null) => void
   onRefresh: () => void
-  onReloadGraphs: () => void
-  reloadingGraphs: boolean
+  refreshing: boolean
+  onRename: (threadId: string, title: string) => void
+  onDelete: (threadId: string) => void
 }
 
 export default function Sidebar({
-  sessions,
-  activeSessionId,
+  threads,
+  activeThreadId,
   onSelect,
   onRefresh,
-  onReloadGraphs,
-  reloadingGraphs,
+  refreshing,
+  onRename,
+  onDelete,
 }: SidebarProps) {
   // Read synchronously so the first paint is already in the right state — no
   // collapse animation when the page loads.
@@ -29,32 +31,6 @@ export default function Sidebar({
   useEffect(() => {
     localStorage.setItem(COLLAPSED_STORAGE_KEY, String(collapsed))
   }, [collapsed])
-
-  const handleRename = useCallback(
-    async (sessionId: string, newTitle: string) => {
-      try {
-        await renameSession(sessionId, newTitle)
-      } catch {
-        // Optimistic update already applied; server failure is silently ignored.
-      }
-    },
-    [],
-  )
-
-  const handleDelete = useCallback(
-    async (sessionId: string) => {
-      try {
-        await deleteSession(sessionId)
-      } catch {
-        // If the active session was deleted, App will fall back gracefully.
-      }
-      onRefresh()
-      if (activeSessionId === sessionId) {
-        onSelect('')
-      }
-    },
-    [activeSessionId, onSelect, onRefresh],
-  )
 
   const toggleLabel = collapsed ? 'Развернуть' : 'Свернуть'
 
@@ -87,13 +63,13 @@ export default function Sidebar({
           onClick={(e) => {
             // Collapsed, the whole column expands the panel on click.
             e.stopPropagation()
-            onReloadGraphs()
+            onRefresh()
           }}
-          disabled={reloadingGraphs}
+          disabled={refreshing}
           title="Перезагрузить графы"
           aria-label="Перезагрузить графы"
         >
-          <span className={`sidebar-action-icon${reloadingGraphs ? ' sidebar-action-icon-spinning' : ''}`}>
+          <span className={`sidebar-action-icon${refreshing ? ' sidebar-action-icon-spinning' : ''}`}>
             <RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
           </span>
           <span className="sidebar-action-label">Перезагрузить</span>
@@ -131,18 +107,18 @@ export default function Sidebar({
       <h2 className="sidebar-title sidebar-section-title">Запущенные графы</h2>
 
       <div className="sidebar-content">
-        {sessions.length === 0 ? (
+        {threads.length === 0 ? (
           <p className="sidebar-empty">Нет сессий</p>
         ) : (
           <div className="session-list">
-            {sessions.map((s) => (
-              <SessionItem
-                key={s.session_id}
-                session={s}
-                isActive={s.session_id === activeSessionId}
-                onClick={() => onSelect(s.session_id)}
-                onRename={(title) => handleRename(s.session_id, title)}
-                onDelete={() => handleDelete(s.session_id)}
+            {threads.map((t) => (
+              <ThreadItem
+                key={t.thread_id}
+                thread={t}
+                isActive={t.thread_id === activeThreadId}
+                onClick={() => onSelect(t.thread_id)}
+                onRename={(title) => onRename(t.thread_id, title)}
+                onDelete={() => onDelete(t.thread_id)}
               />
             ))}
           </div>

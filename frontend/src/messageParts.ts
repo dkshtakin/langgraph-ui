@@ -1,83 +1,189 @@
 /**
- * Building the ordered parts of an assistant message.
+ * Turning the agent server's state into the feed the UI renders.
  *
- * Two sources produce the same shape: a live SSE turn, accumulated chunk by
- * chunk, and the stored history, whose flat fields are mapped in one go. Both
- * go through here so the live feed and the reloaded one come out alike.
+ * The server hands back LangChain messages; the components want an ordered list
+ * of `ChatMessage`. That mapping lives here, on its own, so the render layer
+ * never sees a server object and this file never sees a component.
  */
 
-import type { SerializedMessage } from './api/client'
-import type { AssistantMessage, MessagePart, ToolCallEvent } from './types'
+import type {
+  ChatMessage,
+  MessagePart,
+  ToolCallArgs,
+  ToolCallEvent,
+  ToolCallResult,
+} from './types'
 
-/** A text part holding nothing but whitespace renders as nothing. */
-function isBlankText(part: MessagePart): boolean {
-  return part.kind === 'text' && !part.text.trim()
+/** The fields we read off a LangChain message. */
+export interface AgentMessage {
+  id?: string
+  type?: string
+  content?: unknown
+  /** Provider fields on the message — where the reasoning rides. */
+  additional_kwargs?: Record<string, unknown>
+  tool_calls?: RawToolCall[]
+  invalid_tool_calls?: RawToolCall[]
+  /** On a tool message: the call it answers. */
+  tool_call_id?: string
+  /** On a tool message: `success` | `error`. */
+  status?: string
 }
 
-/** Merge a part into the last part of `parts` when the kind matches, else append. */
-function mergePart(parts: MessagePart[], part: MessagePart): MessagePart[] {
-  const last = parts[parts.length - 1]
+export interface RawToolCall {
+  id?: string
+  name?: string
+  args?: unknown
+}
 
-  if (last?.kind === 'text' && part.kind === 'text') {
-    return [...parts.slice(0, -1), { kind: 'text', text: last.text + part.text }]
+/**
+ * Text of a message whose content is a string or a list of content blocks.
+ *
+ * Only text blocks contribute. A block of another kind carries its own `text`
+ * or `reasoning` key, and reading it would glue something that is not the
+ * answer into the answer.
+ */
+function textOf(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+
+  return content
+    .map((block) => {
+      if (typeof block === 'string') return block
+      if (typeof block !== 'object' || block === null) return ''
+      const { type, text } = block as { type?: unknown; text?: unknown }
+      if (type !== undefined && type !== 'text') return ''
+      return typeof text === 'string' ? text : ''
+    })
+    .join('')
+}
+
+/** Render a tool's return value, whatever shape it came back in. */
+function renderResult(output: unknown): string {
+  if (output === null || output === undefined) return ''
+  if (typeof output === 'string') return output
+  return JSON.stringify(output, null, 2)
+}
+
+/**
+ * What every call the thread has already answered came back with, by call id.
+ *
+ * The tool message is the only place the outcome exists: the SDK's `toolCalls`
+ * projection is filled in while a run streams and is empty for a thread read
+ * back from the server, so a result taken from it would vanish on reload.
+ */
+function resultsById(messages: AgentMessage[]): Map<string, ToolCallResult> {
+  const results = new Map<string, ToolCallResult>()
+
+  for (const message of messages) {
+    if (message.type !== 'tool' || !message.tool_call_id) continue
+    results.set(message.tool_call_id, {
+      status: message.status === 'error' ? 'error' : 'completed',
+      text: renderResult(message.content),
+    })
   }
-  if (last?.kind === 'reasoning' && part.kind === 'reasoning') {
-    return [...parts.slice(0, -1), { kind: 'reasoning', text: last.text + part.text }]
-  }
-  if (last?.kind === 'tool_calls' && part.kind === 'tool_calls') {
-    return [...parts.slice(0, -1), { kind: 'tool_calls', calls: [...last.calls, ...part.calls] }]
-  }
 
-  return [...parts, part]
+  return results
 }
 
-/** A tool call closes a message: the next non-tool part opens a new one. */
-function appendPart(
-  messages: AssistantMessage[],
-  part: MessagePart,
-  newMessageId: string,
-): AssistantMessage[] {
-  const last = messages[messages.length - 1]
-  const lastPart = last?.parts[last.parts.length - 1]
+/** Calls of one message, in the order the model asked for them. */
+function ownCalls(message: AgentMessage): ToolCallEvent[] {
+  const valid: ToolCallEvent[] = (message.tool_calls ?? []).map((call) => ({
+    id: call.id,
+    name: call.name ?? '',
+    args: (call.args as ToolCallArgs) ?? null,
+  }))
 
-  if (!last || (lastPart.kind === 'tool_calls' && part.kind !== 'tool_calls')) {
-    return [...messages, { id: newMessageId, role: 'assistant', parts: [part] }]
-  }
+  // An invalid call never parsed, so its args stay the raw string that failed.
+  const invalid: ToolCallEvent[] = (message.invalid_tool_calls ?? []).map((call) => ({
+    id: call.id,
+    name: call.name ?? '',
+    args: (call.args as ToolCallArgs) ?? null,
+    invalid: true,
+  }))
 
-  // A tool call ends the segment, and a whitespace-only text part — the "\n\n"
-  // the model emits before calling a tool — goes with it. The history mapping
-  // drops that part too, so both sources end up with the same sequence.
-  const parts = part.kind === 'tool_calls' && isBlankText(lastPart)
-    ? last.parts.slice(0, -1)
-    : last.parts
-
-  return [...messages.slice(0, -1), { ...last, parts: mergePart(parts, part) }]
+  return [...valid, ...invalid]
 }
 
-/** Append a reasoning or answer chunk, extending the open message. */
-export function appendChunk(
-  messages: AssistantMessage[],
-  kind: 'reasoning' | 'text',
-  text: string,
-  newMessageId: string,
-): AssistantMessage[] {
-  return appendPart(messages, { kind, text }, newMessageId)
+/** Attach the outcome of a call, when the thread has one for it. */
+function withOutcome(call: ToolCallEvent, results: Map<string, ToolCallResult>): ToolCallEvent {
+  if (call.id === undefined) return call
+  const result = results.get(call.id)
+  return result ? { ...call, result } : call
 }
 
-/** Append a tool call, extending the open message. */
-export function appendToolCall(
-  messages: AssistantMessage[],
-  call: ToolCallEvent,
-  newMessageId: string,
-): AssistantMessage[] {
-  return appendPart(messages, { kind: 'tool_calls', calls: [call] }, newMessageId)
+/** Reasoning a message carries as a content block, in the standard shape. */
+function reasoningInBlocks(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+
+  return content
+    .map((block) => {
+      if (typeof block !== 'object' || block === null) return ''
+      const { type, reasoning } = block as { type?: unknown; reasoning?: unknown }
+      if (type !== 'reasoning') return ''
+      return typeof reasoning === 'string' ? reasoning : ''
+    })
+    .join('')
 }
 
-/** Build the parts of an assistant message from the flat fields history returns. */
-export function historyParts(message: SerializedMessage): MessagePart[] {
+/**
+ * The thinking a message carries beside its answer.
+ *
+ * Two shapes reach the browser, and the difference is where the message came
+ * from rather than what the model did: while a run streams, the stream SDK
+ * lifts the thinking into a `reasoning` content block; the same message read
+ * back from the server's state carries it in `additional_kwargs` instead —
+ * `reasoning_content`, the field llama-server fills and `ChatDeepSeek` keeps.
+ * Either way a message without it simply has no reasoning part, which is what a
+ * graph that does not think looks like.
+ */
+function reasoningOf(message: AgentMessage): string {
+  const inBlocks = reasoningInBlocks(message.content)
+  if (inBlocks) return inBlocks
+
+  const inKwargs = message.additional_kwargs?.reasoning_content
+  return typeof inKwargs === 'string' ? inKwargs : ''
+}
+
+function partsOf(message: AgentMessage, results: Map<string, ToolCallResult>): MessagePart[] {
   const parts: MessagePart[] = []
-  if (message.reasoning) parts.push({ kind: 'reasoning', text: message.reasoning })
-  if (message.toolCalls?.length) parts.push({ kind: 'tool_calls', calls: message.toolCalls })
-  if (message.text?.trim()) parts.push({ kind: 'text', text: message.text })
+
+  // The order the graph produced them in: reasoning → tool calls → answer.
+  const reasoning = reasoningOf(message)
+  if (reasoning) parts.push({ kind: 'reasoning', text: reasoning })
+
+  const calls = ownCalls(message).map((call) => withOutcome(call, results))
+  if (calls.length > 0) parts.push({ kind: 'tool_calls', calls })
+
+  const text = textOf(message.content)
+  if (text) parts.push({ kind: 'text', text })
+
   return parts
+}
+
+/**
+ * Map the server's messages to the feed.
+ *
+ * Tool results ride inside the call block, so `ToolMessage`s are dropped rather
+ * than rendered as rows of their own — as they always have been.
+ */
+export function toFeed(messages: AgentMessage[]): ChatMessage[] {
+  const feed: ChatMessage[] = []
+  const results = resultsById(messages)
+
+  messages.forEach((message, i) => {
+    const id = message.id ?? `msg-${i}`
+
+    if (message.type === 'human') {
+      feed.push({ id, role: 'user', text: textOf(message.content) })
+    } else if (message.type === 'system') {
+      feed.push({ id, role: 'system', text: textOf(message.content) })
+    } else if (message.type === 'ai') {
+      const parts = partsOf(message, results)
+      // An assistant message with nothing to show would render as an empty
+      // bubble — a message that only called a tool carries no text at all.
+      if (parts.length > 0) feed.push({ id, role: 'assistant', parts })
+    }
+  })
+
+  return feed
 }

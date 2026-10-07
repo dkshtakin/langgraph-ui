@@ -1,199 +1,269 @@
 import { describe, expect, it } from 'vitest'
-import { appendChunk, appendToolCall, historyParts } from './messageParts'
-import type { AssistantMessage, MessagePart, ToolCallEvent } from './types'
+import { toFeed, type AgentMessage } from './messageParts'
 
-function toolCall(name: string): ToolCallEvent {
-  return { name, args: {}, invalid: false }
-}
-
-/** Feed an event sequence through the accumulators the way the live stream does. */
-function feed(events: Array<['reasoning' | 'text', string] | ['tool', string]>): AssistantMessage[] {
-  let messages: AssistantMessage[] = []
-  let id = 0
-  for (const [kind, value] of events) {
-    id += 1
-    messages =
-      kind === 'tool'
-        ? appendToolCall(messages, toolCall(value), `m${id}`)
-        : appendChunk(messages, kind, value, `m${id}`)
+/** A message as the agent server sends it: content is a list of blocks. */
+function ai(text: string, over: Partial<AgentMessage> = {}): AgentMessage {
+  return {
+    id: `ai-${text}`,
+    type: 'ai',
+    content: [{ type: 'text', text }],
+    tool_calls: [],
+    invalid_tool_calls: [],
+    ...over,
   }
-  return messages
 }
 
-function partsOf(messages: AssistantMessage[]): MessagePart[][] {
-  return messages.map((m) => m.parts)
+/** What a tool answered, as the agent server sends it. */
+function tool(content: unknown, over: Partial<AgentMessage> = {}): AgentMessage {
+  return {
+    id: 'tool-1',
+    type: 'tool',
+    content,
+    tool_call_id: 'c1',
+    status: 'success',
+    ...over,
+  }
 }
 
-describe('merging parts', () => {
-  it('merges consecutive chunks of the same kind into one part', () => {
-    const messages = feed([['reasoning', 'думаю'], ['reasoning', ' ещё']])
-    expect(partsOf(messages)).toEqual([[{ kind: 'reasoning', text: 'думаю ещё' }]])
-  })
-
-  it('opens a new part when the kind changes', () => {
-    const messages = feed([['reasoning', 'думаю'], ['text', 'отвечаю']])
-    expect(partsOf(messages)).toEqual([
-      [{ kind: 'reasoning', text: 'думаю' }, { kind: 'text', text: 'отвечаю' }],
+describe('toFeed — messages', () => {
+  it('maps a human message to a user row', () => {
+    expect(toFeed([{ id: 'h1', type: 'human', content: 'привет' }])).toEqual([
+      { id: 'h1', role: 'user', text: 'привет' },
     ])
   })
 
-  it('starts a message on the first chunk', () => {
-    const messages = feed([['text', 'привет']])
-    expect(partsOf(messages)).toEqual([[{ kind: 'text', text: 'привет' }]])
+  it('maps a system message to a system row', () => {
+    expect(toFeed([{ id: 's1', type: 'system', content: 'правила' }])).toEqual([
+      { id: 's1', role: 'system', text: 'правила' },
+    ])
   })
 
-  it('does not mutate the messages it is given', () => {
-    const before = feed([['reasoning', 'думаю']])
-    const snapshot = structuredClone(before)
+  it('joins the text of every content block', () => {
+    const message = ai('', {
+      content: [
+        { type: 'text', text: 'раз' },
+        { type: 'text', text: 'два' },
+      ],
+    })
+    expect(toFeed([message])).toEqual([
+      { id: 'ai-', role: 'assistant', parts: [{ kind: 'text', text: 'раздва' }] },
+    ])
+  })
 
-    appendChunk(before, 'reasoning', ' ещё', 'm9')
-    appendToolCall(before, toolCall('today_tool'), 'm9')
+  it('drops tool messages — their results live inside the call block', () => {
+    const feed = toFeed([{ id: 't1', type: 'tool', content: 'сегодня 7 октября' }])
+    expect(feed).toEqual([])
+  })
 
-    expect(before).toEqual(snapshot)
+  it('drops an assistant message that has nothing to show', () => {
+    expect(toFeed([ai('')])).toEqual([])
+  })
+
+  it('falls back to an index id when the server sent none', () => {
+    const feed = toFeed([{ type: 'human', content: 'привет' }])
+    expect(feed[0].id).toBe('msg-0')
   })
 })
 
-describe('tool call boundaries', () => {
-  it('keeps a tool call in the message that precedes it', () => {
-    const messages = feed([['reasoning', 'нужно вызвать today_tool'], ['tool', 'today_tool']])
-    expect(partsOf(messages)).toEqual([
-      [
-        { kind: 'reasoning', text: 'нужно вызвать today_tool' },
-        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
-      ],
+describe('toFeed — tool calls', () => {
+  const calling = ai('', {
+    id: 'ai-1',
+    tool_calls: [{ id: 'c1', name: 'today_tool', args: { note: 'сегодня' } }],
+  })
+
+  it('renders the call before the text of the same message', () => {
+    const message = { ...calling, content: [{ type: 'text', text: 'готово' }] }
+    expect(toFeed([message])).toEqual([
+      {
+        id: 'ai-1',
+        role: 'assistant',
+        parts: [
+          {
+            kind: 'tool_calls',
+            calls: [{ id: 'c1', name: 'today_tool', args: { note: 'сегодня' } }],
+          },
+          { kind: 'text', text: 'готово' },
+        ],
+      },
     ])
   })
 
-  it('opens a message for a tool call that comes first', () => {
-    const messages = feed([['tool', 'today_tool']])
-    expect(partsOf(messages)).toEqual([[{ kind: 'tool_calls', calls: [toolCall('today_tool')] }]])
-  })
-
-  it('opens a new message for text that follows a tool call', () => {
-    const messages = feed([['reasoning', 'думаю'], ['tool', 'today_tool'], ['text', 'готово']])
-    expect(partsOf(messages)).toEqual([
-      [
-        { kind: 'reasoning', text: 'думаю' },
-        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
-      ],
-      [{ kind: 'text', text: 'готово' }],
-    ])
-  })
-
-  it('opens a new message for reasoning that follows a tool call', () => {
-    const messages = feed([['reasoning', 'думаю'], ['tool', 'today_tool'], ['reasoning', 'ещё думаю']])
-    expect(partsOf(messages)).toEqual([
-      [
-        { kind: 'reasoning', text: 'думаю' },
-        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
-      ],
-      [{ kind: 'reasoning', text: 'ещё думаю' }],
-    ])
-  })
-
-  it('keeps parallel tool calls in one message', () => {
-    const messages = feed([['reasoning', 'два вызова'], ['tool', 'a'], ['tool', 'b'], ['text', 'готово']])
-    expect(partsOf(messages)).toEqual([
-      [
-        { kind: 'reasoning', text: 'два вызова' },
-        { kind: 'tool_calls', calls: [toolCall('a'), toolCall('b')] },
-      ],
-      [{ kind: 'text', text: 'готово' }],
-    ])
-  })
-
-  it('gives every message its own id', () => {
-    const messages = feed([['tool', 'a'], ['text', 'b']])
-    expect(messages.map((m) => m.id)).toEqual(['m1', 'm2'])
-  })
-})
-
-describe('whitespace-only text', () => {
-  it('drops a blank text part when a tool call closes the segment', () => {
-    const messages = feed([['reasoning', 'думаю'], ['text', '\n\n'], ['tool', 'today_tool']])
-    expect(partsOf(messages)).toEqual([
-      [
-        { kind: 'reasoning', text: 'думаю' },
-        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
-      ],
-    ])
-  })
-
-  it('keeps a text part that carries anything but whitespace', () => {
-    const messages = feed([['reasoning', 'думаю'], ['text', '\n\nготово'], ['tool', 'today_tool']])
-    expect(partsOf(messages)).toEqual([
-      [
-        { kind: 'reasoning', text: 'думаю' },
-        { kind: 'text', text: '\n\nготово' },
-        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
-      ],
+  it('marks a call from invalid_tool_calls and keeps its raw arguments', () => {
+    const message = ai('', {
+      id: 'ai-2',
+      invalid_tool_calls: [{ id: 'c2', name: 'today_tool', args: '{"date": ' }],
+    })
+    expect(toFeed([message])).toEqual([
+      {
+        id: 'ai-2',
+        role: 'assistant',
+        parts: [
+          {
+            kind: 'tool_calls',
+            calls: [{ id: 'c2', name: 'today_tool', args: '{"date": ', invalid: true }],
+          },
+        ],
+      },
     ])
   })
 })
 
-describe('historyParts', () => {
-  it('skips a whitespace-only text', () => {
-    expect(historyParts({ role: 'assistant', text: '\n\n', reasoning: 'думаю', toolCalls: [toolCall('today_tool')] }))
-      .toEqual([
-        { kind: 'reasoning', text: 'думаю' },
-        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
-      ])
-  })
+describe('toFeed — tool results', () => {
+  const calling = (calls: AgentMessage['tool_calls']): AgentMessage =>
+    ai('', { id: 'ai-1', tool_calls: calls })
 
-  it('keeps the order reasoning → tool calls → text', () => {
-    expect(historyParts({ role: 'assistant', text: 'ответ', reasoning: 'думаю', toolCalls: [toolCall('a')] }))
-      .toEqual([
-        { kind: 'reasoning', text: 'думаю' },
-        { kind: 'tool_calls', calls: [toolCall('a')] },
-        { kind: 'text', text: 'ответ' },
-      ])
-  })
-})
+  function callsOf(messages: AgentMessage[]) {
+    const feed = toFeed(messages)
+    const part = feed[0]
+    if (part.role !== 'assistant' || part.parts[0].kind !== 'tool_calls') throw new Error('no calls')
+    return part.parts[0].calls
+  }
 
-describe('a real turn from the checkpoint', () => {
-  // The stream emits a message's text block before its tool call, so the
-  // whitespace tail arrives ahead of the tool; history carries it after.
-  const streamed = feed([
-    ['reasoning', '\nПользователь спрашивает, какой сегодня день. '],
-    ['reasoning', 'Мне нужно вызвать инструмент today_tool.'],
-    ['text', '\n\n'],
-    ['tool', 'today_tool'],
-    ['reasoning', '\nСегодня 18 сентября 2026 года. Нужно ответить пользователю.'],
-    ['text', '\n\nСегодня **18 сентября 2026 года**.'],
-  ])
-
-  const history = [
-    {
-      role: 'assistant',
-      text: '\n\n',
-      reasoning: '\nПользователь спрашивает, какой сегодня день. Мне нужно вызвать инструмент today_tool.',
-      toolCalls: [toolCall('today_tool')],
-    },
-    {
-      role: 'assistant',
-      text: '\n\nСегодня **18 сентября 2026 года**.',
-      reasoning: '\nСегодня 18 сентября 2026 года. Нужно ответить пользователю.',
-      toolCalls: [],
-    },
-  ].map((m, i) => ({ id: `h${i}`, role: 'assistant' as const, parts: historyParts(m) }))
-
-  it('splits reasoning → tool → reasoning → text into two messages', () => {
-    expect(partsOf(streamed)).toEqual([
-      [
-        {
-          kind: 'reasoning',
-          text: '\nПользователь спрашивает, какой сегодня день. Мне нужно вызвать инструмент today_tool.',
-        },
-        { kind: 'tool_calls', calls: [toolCall('today_tool')] },
-      ],
-      [
-        { kind: 'reasoning', text: '\nСегодня 18 сентября 2026 года. Нужно ответить пользователю.' },
-        { kind: 'text', text: '\n\nСегодня **18 сентября 2026 года**.' },
-      ],
+  it('shows nothing extra while the call has no answer yet', () => {
+    expect(callsOf([calling([{ id: 'c1', name: 'today_tool', args: {} }])])).toEqual([
+      { id: 'c1', name: 'today_tool', args: {} },
     ])
   })
 
-  it('gives the same parts as the history mapping', () => {
-    expect(partsOf(streamed)).toEqual(partsOf(history))
+  it('carries the returned value once the tool has answered', () => {
+    const calls = callsOf([
+      calling([{ id: 'c1', name: 'today_tool', args: {} }]),
+      tool('7 октября 2026'),
+    ])
+    expect(calls[0].result).toEqual({ status: 'completed', text: '7 октября 2026' })
+  })
+
+  it('pretty-prints a structured return value', () => {
+    const calls = callsOf([
+      calling([{ id: 'c1', name: 'today_tool', args: {} }]),
+      tool({ date: '2026-10-07' }),
+    ])
+    expect(calls[0].result?.text).toBe('{\n  "date": "2026-10-07"\n}')
+  })
+
+  it('carries the failure text of a tool that errored', () => {
+    const calls = callsOf([
+      calling([{ id: 'c1', name: 'today_tool', args: {} }]),
+      tool('инструмент недоступен', { status: 'error' }),
+    ])
+    expect(calls[0].result).toEqual({ status: 'error', text: 'инструмент недоступен' })
+  })
+
+  it('leaves a call alone when no tool message answers it', () => {
+    const calls = callsOf([calling([{ id: 'c9', name: 'today_tool', args: {} }]), tool('x')])
+    expect(calls[0].result).toBeUndefined()
+  })
+
+  it('matches answers to calls by id, not by position', () => {
+    const calls = callsOf([
+      calling([
+        { id: 'c1', name: 'a', args: {} },
+        { id: 'c2', name: 'b', args: {} },
+      ]),
+      tool('второй', { id: 'tool-2', tool_call_id: 'c2' }),
+      tool('первый', { id: 'tool-1', tool_call_id: 'c1' }),
+    ])
+    expect(calls.map((c) => c.result?.text)).toEqual(['первый', 'второй'])
+  })
+})
+
+describe('toFeed — reasoning', () => {
+  const thinking = { additional_kwargs: { reasoning_content: 'думаю' } }
+
+  it('puts the reasoning before the answer of the same message', () => {
+    expect(toFeed([ai('готово', { id: 'ai-1', ...thinking })])).toEqual([
+      {
+        id: 'ai-1',
+        role: 'assistant',
+        parts: [
+          { kind: 'reasoning', text: 'думаю' },
+          { kind: 'text', text: 'готово' },
+        ],
+      },
+    ])
+  })
+
+  it('puts the reasoning before the tool calls of the same message', () => {
+    const message = ai('', {
+      id: 'ai-1',
+      tool_calls: [{ id: 'c1', name: 'today_tool', args: {} }],
+      ...thinking,
+    })
+    expect(toFeed([message])).toEqual([
+      {
+        id: 'ai-1',
+        role: 'assistant',
+        parts: [
+          { kind: 'reasoning', text: 'думаю' },
+          { kind: 'tool_calls', calls: [{ id: 'c1', name: 'today_tool', args: {} }] },
+        ],
+      },
+    ])
+  })
+
+  it('keeps a message that holds nothing but reasoning', () => {
+    expect(toFeed([ai('', { id: 'ai-1', ...thinking })])).toEqual([
+      { id: 'ai-1', role: 'assistant', parts: [{ kind: 'reasoning', text: 'думаю' }] },
+    ])
+  })
+
+  it('adds no reasoning part when the field is absent or not a string', () => {
+    const textOnly = [{ id: 'ai-1', role: 'assistant', parts: [{ kind: 'text', text: 'готово' }] }]
+    expect(toFeed([ai('готово', { id: 'ai-1', additional_kwargs: {} })])).toEqual(textOnly)
+    expect(toFeed([ai('готово', { id: 'ai-1', additional_kwargs: { reasoning_content: 42 } })]))
+      .toEqual(textOnly)
+  })
+
+  it('reads reasoning that arrived as a content block, not as the answer', () => {
+    const message = ai('', {
+      id: 'ai-1',
+      content: [
+        { type: 'reasoning', reasoning: 'думаю' },
+        { type: 'text', text: 'ответ' },
+      ],
+    })
+    expect(toFeed([message])).toEqual([
+      {
+        id: 'ai-1',
+        role: 'assistant',
+        parts: [
+          { kind: 'reasoning', text: 'думаю' },
+          { kind: 'text', text: 'ответ' },
+        ],
+      },
+    ])
+  })
+})
+
+describe('toFeed — a real turn from the chat graph', () => {
+  // The model's thinking comes back beside the answer, under
+  // `additional_kwargs.reasoning_content`, so nothing has to be taken apart.
+  it('renders the thinking and the answer of one turn', () => {
+    const message = ai('Сегодня **7 октября 2026 года**.', {
+      id: 'ai-1',
+      additional_kwargs: { reasoning_content: 'Спросили дату — вызову инструмент.' },
+      tool_calls: [{ id: 'c1', name: 'today_tool', args: { note: 'сегодня' } }],
+    })
+    expect(toFeed([message, tool('2026-10-07')])).toEqual([
+      {
+        id: 'ai-1',
+        role: 'assistant',
+        parts: [
+          { kind: 'reasoning', text: 'Спросили дату — вызову инструмент.' },
+          {
+            kind: 'tool_calls',
+            calls: [
+              {
+                id: 'c1',
+                name: 'today_tool',
+                args: { note: 'сегодня' },
+                result: { status: 'completed', text: '2026-10-07' },
+              },
+            ],
+          },
+          { kind: 'text', text: 'Сегодня **7 октября 2026 года**.' },
+        ],
+      },
+    ])
   })
 })

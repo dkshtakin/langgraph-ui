@@ -1,26 +1,28 @@
 import { useState, useRef, useEffect } from 'react'
 import { Ellipsis, Pencil, Trash2 } from 'lucide-react'
-import type { Session } from '../api/client'
+import { threadTitle } from '../thread'
+import type { Thread } from '../api/agentServer'
 
-interface SessionItemProps {
-  session: Session
+interface ThreadItemProps {
+  thread: Thread
   isActive: boolean
   onClick: () => void
   onRename: (newTitle: string) => void
   onDelete: () => void
 }
 
-export default function SessionItem({
-  session,
+export default function ThreadItem({
+  thread,
   isActive,
   onClick,
   onRename,
   onDelete,
-}: SessionItemProps) {
+}: ThreadItemProps) {
+  const title = threadTitle(thread)
   const [hovered, setHovered] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [renaming, setRenaming] = useState(false)
-  const [editValue, setEditValue] = useState(session.title)
+  const [editValue, setEditValue] = useState(title)
   const inputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -45,10 +47,10 @@ export default function SessionItem({
 
   const handleRenameSubmit = () => {
     const trimmed = editValue.trim()
-    if (trimmed && trimmed !== session.title) {
+    if (trimmed && trimmed !== title) {
       onRename(trimmed)
     } else {
-      setEditValue(session.title)
+      setEditValue(title)
     }
     setRenaming(false)
   }
@@ -78,13 +80,13 @@ export default function SessionItem({
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleRenameSubmit()
               if (e.key === 'Escape') {
-                setEditValue(session.title)
+                setEditValue(title)
                 setRenaming(false)
               }
             }}
           />
         ) : (
-          <span className="session-title">{session.title}</span>
+          <span className="session-title">{title}</span>
         )}
       </button>
 

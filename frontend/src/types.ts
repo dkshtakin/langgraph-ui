@@ -6,10 +6,23 @@ export type StreamState = 'idle' | 'initializing' | 'streaming' | 'interrupted' 
  */
 export type ToolCallArgs = Record<string, unknown> | string | null
 
+/** What the agent server knows about a run that produced this call. */
+export type ToolCallStatus = 'pending' | 'completed' | 'error'
+
+export interface ToolCallResult {
+  status: ToolCallStatus
+  /** The tool's output, or the text of the failure. Empty while pending. */
+  text: string
+}
+
 export interface ToolCallEvent {
+  /** The server's id for the call, used to find its outcome. */
+  id?: string
   name: string
   args: ToolCallArgs
-  invalid?: boolean  // true when emitted as "invalid_tool_call"
+  invalid?: boolean  // the call never parsed, so it never ran
+  /** Absent when nothing is known about the call yet. */
+  result?: ToolCallResult
 }
 
 /**

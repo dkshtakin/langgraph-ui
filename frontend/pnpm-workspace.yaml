@@ -1,0 +1,5 @@
+allowBuilds:
+  esbuild: false
+minimumReleaseAgeExclude:
+  - '@langchain/langgraph-sdk@1.12.2'
+  - '@langchain/react@1.2.2'

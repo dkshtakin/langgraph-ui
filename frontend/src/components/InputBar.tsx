@@ -6,10 +6,9 @@ interface InputBarProps {
   streamState: StreamState
   disabled?: boolean
   onSend: (message: string) => void
-  onNewChat: () => void
 }
 
-export default function InputBar({ streamState, disabled, onSend, onNewChat }: InputBarProps) {
+export default function InputBar({ streamState, disabled, onSend }: InputBarProps) {
   const [inputValue, setInputValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -36,7 +35,6 @@ export default function InputBar({ streamState, disabled, onSend, onNewChat }: I
   const isInitializing = streamState === 'initializing'
   const isStreaming = streamState === 'streaming'
   const isInterrupted = streamState === 'interrupted'
-  const isDone = streamState === 'done'
 
   let placeholder = 'Введите сообщение'
   if (isInterrupted) placeholder = 'Введите ваш ответ'
@@ -46,11 +44,6 @@ export default function InputBar({ streamState, disabled, onSend, onNewChat }: I
 
   return (
     <div className="input-bar">
-      {isDone && (
-        <button className="new-chat-btn" onClick={onNewChat}>
-          New Chat
-        </button>
-      )}
       <div className="input-wrapper">
         <input
           ref={inputRef}

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from backend.config.llm import chat
-from backend.config.prompts import _load_graph_prompt
-
+import os
 from pathlib import Path
 from datetime import date
+from dotenv import load_dotenv
 from collections.abc import Callable
 from pydantic import BaseModel, Field
 from typing import Optional, TypedDict, List
@@ -20,6 +19,7 @@ from langgraph.types import Command, interrupt
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.messages import ToolMessage
 from langchain.messages import AnyMessage
+from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import messages_to_dict
 from langchain.tools import tool, ToolRuntime
 from langchain.tools.tool_node import ToolCallRequest
@@ -28,7 +28,31 @@ from langchain.agents.structured_output import ToolStrategy
 from langchain.agents.middleware import wrap_tool_call, AgentMiddleware
 
 
-name: str = 'Book Planner Example'
+load_dotenv()
+
+
+chat = ChatDeepSeek(
+    base_url=os.environ.get('LLM_BASE_URL', 'http://127.0.0.1:8081/v1'),
+    api_key=os.environ.get('LLM_API_KEY', 'empty'),
+    model=os.environ.get('LLM_NAME', ''),
+    streaming=True,
+    extra_body={
+        "chat_template_kwargs": {
+            "enable_thinking": True,
+            "reasoning_effort": "medium",
+        },
+        "reasoning_format": "deepseek"
+    },
+)
+
+
+def _load_graph_prompt(graph_dir: Path, filename: str) -> str:
+    path = graph_dir / filename
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
 _GRAPH_DIR = Path(__file__).parent
 SYSTEM_PROMPT: str = _load_graph_prompt(_GRAPH_DIR, 'SOUL.md')
 SUMMARY_PROMPT: str = _load_graph_prompt(_GRAPH_DIR, 'OUTPUT.md')
@@ -167,31 +191,30 @@ summary_agent = create_agent(
 )
 
 
-def build() -> object:
-    builder = StateGraph(BookPlannerState)
+graph = StateGraph(BookPlannerState)
 
-    builder.add_node('init', _init_node)
-    builder.add_node('agent', agent)
-    builder.add_node('summary_agent', summary_agent)
-    builder.add_node('user_input', _user_input_interrupt_node)
-    builder.add_node('create_summary', _create_summary)
-    builder.add_node('save_summary', _save_summary)
+graph.add_node('init', _init_node)
+graph.add_node('agent', agent)
+graph.add_node('summary_agent', summary_agent)
+graph.add_node('user_input', _user_input_interrupt_node)
+graph.add_node('create_summary', _create_summary)
+graph.add_node('save_summary', _save_summary)
 
-    builder.add_edge(START, 'init')
-    builder.add_edge('init', 'user_input')
-    builder.add_edge('user_input', 'agent')
+graph.add_edge(START, 'init')
+graph.add_edge('init', 'user_input')
+graph.add_edge('user_input', 'agent')
 
-    builder.add_conditional_edges(
-        'agent',
-        should_continue,
-        {
-            'dialog': 'user_input',
-            'summary': 'create_summary'
-        }
-    )
+graph.add_conditional_edges(
+    'agent',
+    should_continue,
+    {
+        'dialog': 'user_input',
+        'summary': 'create_summary'
+    }
+)
 
-    builder.add_edge('create_summary', 'summary_agent')
-    builder.add_edge('summary_agent', 'save_summary')
-    builder.add_edge('save_summary', END)
+graph.add_edge('create_summary', 'summary_agent')
+graph.add_edge('summary_agent', 'save_summary')
+graph.add_edge('save_summary', END)
 
-    return builder.compile()
+graph = graph.compile()

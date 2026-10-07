@@ -1,56 +1,53 @@
-"""Test flow graph — interrupt + fake LLM node.
-
-Used for E2E session lifecycle tests without requiring a real LLM.
-
-Graph structure::
-
-    START → pause ───(interrupt when stage=="dialog")──→ (resume signal)
-                                            ↓
-                                    fake_llm_node → END
-
-State: ``{messages, result, stage}``
+"""Test flow graph
 """
 
 from __future__ import annotations
 
+from typing_extensions import TypedDict, Annotated
+
+from langchain.messages import AnyMessage
 from langchain_core.messages import AIMessage
+
+from langgraph.types import interrupt
+from langgraph.graph.message import add_messages
 from langgraph.graph import END, START, StateGraph
 
-from backend.graphs.examples.common import FlowState, pause_node
+
+class FlowState(TypedDict):
+    """Shared state shape for test-flow and llm-flow graphs."""
+
+    messages: Annotated[list[AnyMessage], add_messages]
+    result: str
+    stage: str
 
 
-# Node implementations
+def pause_node(state: FlowState) -> dict:
+    """Pause the graph when ``stage == 'dialog'``.
+
+    On resume the graph continues past this node without re-interrupting.
+    """
+    if state.get('stage', 'dialog') == 'dialog':
+        interrupt({'reason': 'waiting_for_user_input'})
+    return {'messages': [], 'result': '', 'stage': 'next'}
+
 
 
 def fake_llm_node(state: FlowState) -> dict:
     """Fake LLM node — returns a canned AIMessage without calling any model."""
     return {
-        "messages": [AIMessage(content="message received")],
-        "result": "ok",
-        "stage": "done",
+        'messages': [AIMessage(content='message received')],
+        'result': 'ok',
+        'stage': 'done',
     }
 
 
-# Graph builder
+graph = StateGraph(FlowState)
 
+graph.add_node('pause', pause_node)
+graph.add_node('fake_llm', fake_llm_node)
 
-def build() -> object:
-    """Build and compile the test-flow graph.
+graph.add_edge(START, 'pause')
+graph.add_edge('pause', 'fake_llm')
+graph.add_edge('fake_llm', END)
 
-    Returns a compiled LangGraph graph ready to run.
-    """
-    builder = StateGraph(FlowState)
-
-    builder.add_node("pause", pause_node)
-    builder.add_node("fake_llm", fake_llm_node)
-
-    builder.add_edge(START, "pause")
-    builder.add_edge("pause", "fake_llm")
-    builder.add_edge("fake_llm", END)
-
-    return builder.compile()
-
-
-# Graph identity (for registry auto-discovery)
-
-name: str = "Test Flow"
+graph = graph.compile()

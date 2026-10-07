@@ -1,0 +1,11 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "test_flow": "./graphs/examples/test_flow/test_flow.py:graph",
+    "chat": "./graphs/examples/chat/chat.py:graph",
+    "book_planner": "./graphs/examples/book_planner/book_planner.py:graph"
+  },
+  "env": ".env",
+  "image_distro": "wolfi"
+}

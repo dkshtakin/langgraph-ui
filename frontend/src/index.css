@@ -906,6 +906,10 @@
   background: #9ca3af;
 }
 
+.dot-error {
+  background: #dc2626;
+}
+
 .graph-switcher-dropdown {
   position: absolute;
   top: calc(100% + 6px);

@@ -1,265 +1,237 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { flushSync } from 'react-dom'
-import ChatView from './components/ChatView'
+import ChatPane from './components/ChatPane'
 import ErrorPopup from './components/ErrorPopup'
 import GraphSwitcher from './components/GraphSwitcher'
-import InputBar from './components/InputBar'
 import Sidebar from './components/Sidebar'
 import {
-  createSession,
-  getGraphs,
-  getMessages,
-  getSessions,
-  reloadGraphs,
-  type GraphInfo,
-  type Session,
-} from './api/client'
-import { streamResume, SseCallbacks } from './api/sseClient'
-import { appendChunk, appendToolCall, historyParts } from './messageParts'
+  createThread,
+  deleteThread,
+  listGraphs,
+  listThreads,
+  renameThread,
+  type Thread,
+} from './api/agentServer'
+import { defaultTitle, graphIdOf } from './thread'
+import { describe, log, logError } from './log'
+import type { StreamState } from './types'
 
-import type { AssistantMessage, ChatMessage, StreamState, ToolCallEvent } from './types'
+/** Survives a reload that lost the query parameter. */
+const ACTIVE_THREAD_KEY = 'active-thread'
 
-interface LiveStream {
-  messages: AssistantMessage[]
-  state: StreamState
+/** The thread the address points at, if it points at one. */
+function readThreadParam(): string | null {
+  return new URLSearchParams(window.location.search).get('thread')
+}
+
+/**
+ * Keep the address in step with the open thread. The parameter is the durable
+ * record of where the user is: it survives a reload, and the thread list in the
+ * sidebar is what makes the id meaningful again after a restart.
+ */
+function writeThreadParam(threadId: string | null, push: boolean) {
+  const url = new URL(window.location.href)
+  if (threadId) url.searchParams.set('thread', threadId)
+  else url.searchParams.delete('thread')
+
+  const next = `${url.pathname}${url.search}`
+  if (push) window.history.pushState({}, '', next)
+  else window.history.replaceState({}, '', next)
+}
+
+function initialThreadId(): string | null {
+  const fromUrl = readThreadParam()
+  const fromStorage = sessionStorage.getItem(ACTIVE_THREAD_KEY)
+  const where = fromUrl ? `?thread=${fromUrl}` : 'no ?thread in the address'
+  const fallback = !fromUrl && fromStorage ? ` — falling back to the stored ${fromStorage}` : ''
+  log(`boot: ${where}${fallback}`)
+  return fromUrl ?? fromStorage
 }
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [nextId, setNextId] = useState(1)
-  const [liveStream, setLiveStream] = useState<LiveStream | null>(null)
-  const [graphs, setGraphs] = useState<GraphInfo[]>([])
-  // Empty until the graph list arrives; the first registered graph is the default.
-  const [currentGraphId, setCurrentGraphId] = useState('')
-  const [reloadingGraphs, setReloadingGraphs] = useState(false)
-  const [reloadErrors, setReloadErrors] = useState<string[]>([])
-  const defaultGraphId = graphs[0]?.id ?? ''
+  const [threads, setThreads] = useState<Thread[]>([])
+  const [graphs, setGraphs] = useState<string[]>([])
+  // The graph the next new chat will run. An open thread's own graph wins over
+  // this for as long as it is open.
+  const [graphId, setGraphId] = useState('')
+  const [threadId, setThreadId] = useState<string | null>(initialThreadId)
+  /** Set once a thread list has actually arrived, so an empty list is not mistaken for a missing thread. */
+  const [threadsLoaded, setThreadsLoaded] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [errors, setErrors] = useState<string[]>([])
+  /** A thread created moments ago whose opening run is still owed. */
+  const [startPending, setStartPending] = useState<string | null>(null)
+  /** Reported up by the open pane, which is where the stream actually lives. */
+  const [streamState, setStreamState] = useState<StreamState>('idle')
+  const [streamFailed, setStreamFailed] = useState(false)
+  const creatingRef = useRef(false)
 
-  const abortRef = useRef<AbortController | null>(null)
-  const liveIdRef = useRef(0)
+  const activeThread = threads.find((t) => t.thread_id === threadId) ?? null
+  const missing = threadsLoaded && threadId !== null && !activeThread
+  const currentGraphId = activeThread ? graphIdOf(activeThread) : graphId
 
-  // Live messages need stable ids so React can reconcile them; they keep these
-  // ids once the stream finalises and they join the feed.
-  const nextLiveId = useCallback(() => `live-${++liveIdRef.current}`, [])
+  /** Add a failure to the error box, under the name of what was being asked of the server. */
+  const reportError = useCallback((label: string, err: unknown) => {
+    setErrors((prev) => [...prev, `${label}: ${describe(err)}`])
+  }, [])
 
-  /**
-   * Wire SSE events into a growing list of live assistant messages. Starting a
-   * fresh session and replying to a user message accumulate the same way, so
-   * both share this.
-   */
-  const startLiveTurn = useCallback((initialState: StreamState) => {
-    let messages: AssistantMessage[] = []
-    setLiveStream({ messages, state: initialState })
-
-    const push = () => {
-      flushSync(() => setLiveStream((prev) => (prev ? { ...prev, messages } : prev)))
-    }
-
-    return {
-      readMessages: () => messages,
-      callbacks: {
-        onChunk: (type: 'answer' | 'reasoning', content: string) => {
-          messages = appendChunk(messages, type === 'answer' ? 'text' : 'reasoning', content, nextLiveId())
-          push()
-        },
-        onToolCall: (call: ToolCallEvent) => {
-          messages = appendToolCall(messages, call, nextLiveId())
-          push()
-        },
-      },
-    }
-  }, [nextLiveId])
-
-  // Load session list and graphs on mount.
+  // Which thread the address ended up pointing at, and whether the list knows
+  // it yet. A thread that never resolves is the "empty chat" case.
   useEffect(() => {
-    getSessions().then(setSessions).catch(console.error)
-    getGraphs()
+    if (threadId === null) {
+      log('no thread open')
+    } else if (activeThread) {
+      log(`open thread ${threadId} on graph "${graphIdOf(activeThread)}"`)
+    } else if (missing) {
+      logError(`thread ${threadId} is not in the list the server returned — showing "not found"`)
+    } else {
+      log(`thread ${threadId} is waiting for the thread list`)
+    }
+  }, [threadId, activeThread, missing])
+
+  // Load the sidebar and the dropdown once, on mount.
+  useEffect(() => {
+    let cancelled = false
+
+    listThreads()
       .then((list) => {
-        setGraphs(list)
-        setCurrentGraphId((current) => current || list[0]?.id || '')
+        if (cancelled) return
+        setThreads(list)
+        setThreadsLoaded(true)
       })
-      .catch(console.error)
+      .catch((err) => {
+        if (!cancelled) reportError('Треды', err)
+      })
+
+    listGraphs()
+      .then((list) => {
+        if (cancelled) return
+        setGraphs(list)
+        setGraphId((current) => current || list[0] || '')
+      })
+      .catch((err) => {
+        if (!cancelled) reportError('Графы', err)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [reportError])
+
+  const applyThread = useCallback((id: string | null) => {
+    setThreadId(id)
+    setStreamState('idle')
+    setStreamFailed(false)
   }, [])
 
-  const refreshSessions = useCallback(async () => {
+  // The address never changes without this running, so storage cannot drift.
+  useEffect(() => {
+    if (threadId) sessionStorage.setItem(ACTIVE_THREAD_KEY, threadId)
+    else sessionStorage.removeItem(ACTIVE_THREAD_KEY)
+  }, [threadId])
+
+  const openThread = useCallback(
+    (id: string | null) => {
+      applyThread(id)
+      writeThreadParam(id, true)
+    },
+    [applyThread],
+  )
+
+  // Back and forward walk the threads the user has opened.
+  useEffect(() => {
+    const onPop = () => applyThread(readThreadParam())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [applyThread])
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true)
     try {
-      const list = await getSessions()
-      setSessions(list)
-    } catch {
-      // Silently ignore — the user can reload the page.
+      setThreads(await listThreads())
+      setThreadsLoaded(true)
+    } catch (err) {
+      reportError('Треды', err)
+    } finally {
+      setRefreshing(false)
     }
-  }, [])
+  }, [reportError])
 
   /**
-   * Rebuild every graph server-side, in the running process. Only the graph
-   * list is refreshed: open sessions keep the compiled graph they started
-   * with, so a stream in flight is neither aborted nor paused.
+   * Switching graph means a new thread: a thread is bound to its assistant for
+   * life, so there is nothing to reconfigure. The old thread is let go of
+   * before the new one exists, so a failed create never leaves the address
+   * pointing at a thread of the previous graph.
    */
-  const handleReloadGraphs = useCallback(async () => {
-    if (reloadingGraphs) return
-    setReloadingGraphs(true)
-    try {
-      const { graphs: list, errors } = await reloadGraphs()
-      setGraphs(list)
-      // A graph that failed to build drops out of the list — fall back to the
-      // first survivor rather than leaving a dead id selected.
-      setCurrentGraphId((current) =>
-        list.some((g) => g.id === current) ? current : list[0]?.id ?? '',
+  const startNewChat = useCallback(
+    async (graph: string) => {
+      if (creatingRef.current) return
+      creatingRef.current = true
+
+      applyThread(null)
+      writeThreadParam(null, false)
+      setGraphId(graph)
+
+      try {
+        const created = await createThread(graph, defaultTitle(graph, Date.now()))
+        setThreads((prev) => [created, ...prev])
+        setStartPending(created.thread_id)
+        applyThread(created.thread_id)
+        writeThreadParam(created.thread_id, true)
+      } catch (err) {
+        reportError('Не удалось создать тред', err)
+      } finally {
+        creatingRef.current = false
+      }
+    },
+    [applyThread, reportError],
+  )
+
+  const handleRename = useCallback(
+    async (id: string, title: string) => {
+      // The row shows the new name at once; the server is told in parallel.
+      setThreads((prev) =>
+        prev.map((t) => (t.thread_id === id ? { ...t, metadata: { ...t.metadata, title } } : t)),
       )
-      setReloadErrors(errors.map((e) => `${e.graph_id} — ${e.error}`))
-    } catch (err) {
-      setReloadErrors([err instanceof Error ? err.message : String(err)])
-    } finally {
-      setReloadingGraphs(false)
-    }
-  }, [reloadingGraphs])
-
-  const switchSession = useCallback(async (sessionId: string | null) => {
-    abortRef.current?.abort()
-    abortRef.current = null
-    setMessages([])
-    setLiveStream(null)
-
-    let nextSession: Session | null = sessionId ? sessions.find((s) => s.session_id === sessionId) ?? null : null
-    if (nextSession) {
       try {
-        const freshList = await getSessions()
-        nextSession = freshList.find((s) => s.session_id === sessionId) ?? null
-        setSessions(freshList)
-      } catch {
-        // Fallback to local list.
+        await renameThread(id, title)
+      } catch (err) {
+        reportError('Не удалось переименовать', err)
       }
-    }
-    setSession(nextSession)
-    setCurrentGraphId(nextSession?.graph_id ?? defaultGraphId)
+    },
+    [reportError],
+  )
 
-    if (nextSession) {
+  const handleDelete = useCallback(
+    async (id: string) => {
       try {
-        const raw = await getMessages(nextSession.session_id)
-        // Tool results are not shown anywhere in the feed — drop them entirely.
-        const mapped: ChatMessage[] = raw
-          .filter((m) => m.role !== 'tool')
-          .map((m, i): ChatMessage => {
-            if (m.role === 'user' || m.role === 'system') {
-              return { id: `msg-${i}`, role: m.role, text: m.text ?? '' }
-            }
-            return { id: `msg-${i}`, role: 'assistant', parts: historyParts(m) }
-          })
-        setMessages(mapped)
-      } catch {
-        console.error('[App] failed to load messages for session', nextSession.session_id)
+        await deleteThread(id)
+      } catch (err) {
+        // The thread is still on the server, so its row stays where it is.
+        reportError('Не удалось удалить', err)
+        return
       }
-    }
-  }, [sessions, defaultGraphId])
+      setThreads((prev) => prev.filter((t) => t.thread_id !== id))
+      if (id === threadId) openThread(null)
+    },
+    [threadId, openThread, reportError],
+  )
 
-  const startNewSession = useCallback(async (graphId?: string) => {
-    abortRef.current?.abort()
-    abortRef.current = null
-    setMessages([])
-    setLiveStream(null)
-    const s = await createSession(graphId || currentGraphId)
-    setSession(s)
-    setSessions((prev) => [s, ...prev])
-
-    // Kick off the graph immediately — fresh sessions have no history, so
-    // passing an empty text lets the graph self-initialise and then pause at
-    // its first interrupt (or finish if there is no user-input branch).
-    const turn = startLiveTurn('initializing')
-
-    const controller = streamResume(s.session_id, '', {
-      ...turn.callbacks,
-      onInterrupt: () => {
-        // Persist the initialization output so it stays visible.
-        setMessages((prev) => [...prev, ...turn.readMessages()])
-        setLiveStream(null)
-      },
-      onDone: () => {
-        // Persist the initialization output so it stays visible.
-        setMessages((prev) => [...prev, ...turn.readMessages()])
-        setLiveStream(null)
-        getSessions().then((list) => {
-          setSessions(list)
-          if (session && list.find((s) => s.session_id === session.session_id)) {
-            setSession(list.find((s) => s.session_id === session.session_id) ?? null)
-          }
-        }).catch(console.error)
-      },
-      onError: (detail) => {
-        console.error('[App] init stream error:', detail)
-        setLiveStream(null)
-      },
-      onComplete: () => {
-        abortRef.current = null
-      },
-    })
-    abortRef.current = controller
-  }, [currentGraphId, defaultGraphId, startLiveTurn])
-
-  const handleSend = useCallback((message: string) => {
-    if (!session) return
-
-    setMessages((prev) => [...prev, { id: `user-${nextId}`, role: 'user', text: message }])
-    setNextId((n) => n + 1)
-
-    abortRef.current?.abort()
-    abortRef.current = null
-
-    const turn = startLiveTurn('streaming')
-
-    const callbacks: SseCallbacks = {
-      ...turn.callbacks,
-      onInterrupt: () => {
-        // The live messages join the feed as they are.
-        setMessages((prev) => [...prev, ...turn.readMessages()])
-        setLiveStream(null)
-      },
-      onDone: () => {
-        setMessages((prev) => [...prev, ...turn.readMessages()])
-        setLiveStream(null)
-        getSessions().then((list) => {
-          setSessions(list)
-          if (session && list.find((s) => s.session_id === session.session_id)) {
-            setSession(list.find((s) => s.session_id === session.session_id) ?? null)
-          }
-        }).catch(console.error)
-      },
-      onError: (detail) => {
-        // Show the real error message so the user can understand what went wrong.
-        console.error('[App] stream error:', detail, 'type:', typeof detail)
-        // The error replaces the turn's output, as it always has.
-        setMessages((prev) => [
-          ...prev,
-          { id: nextLiveId(), role: 'assistant', parts: [{ kind: 'text', text: `⚠️ Ошибка:\n${detail}` }] },
-        ])
-        setLiveStream(null)
-      },
-      onComplete: () => {
-        abortRef.current = null
-      },
-    }
-
-    const controller = streamResume(session.session_id, message, callbacks)
-    abortRef.current = controller
-  }, [session, nextId, nextLiveId, startLiveTurn])
-
-  // Abort on unmount
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort()
-    }
+  const handleRunStarted = useCallback(() => setStartPending(null), [])
+  const handleStreamState = useCallback((state: StreamState, failed: boolean) => {
+    setStreamState(state)
+    setStreamFailed(failed)
   }, [])
 
   return (
     <div className="app-layout">
       <Sidebar
-        sessions={sessions}
-        activeSessionId={session?.session_id ?? null}
-        onSelect={(id) => switchSession(id || null)}
-        onRefresh={refreshSessions}
-        onReloadGraphs={handleReloadGraphs}
-        reloadingGraphs={reloadingGraphs}
+        threads={threads}
+        activeThreadId={threadId}
+        onSelect={openThread}
+        onRefresh={refresh}
+        refreshing={refreshing}
+        onRename={handleRename}
+        onDelete={handleDelete}
       />
 
       <div className="main-wrapper">
@@ -267,39 +239,45 @@ export default function App() {
           <header className="app-header">
             <GraphSwitcher
               currentGraphId={currentGraphId}
-              sessionStatus={session?.status}
-              streamState={liveStream?.state}
+              streamState={streamState}
+              failed={streamFailed || activeThread?.status === 'error'}
               graphs={graphs}
-              onSelect={(id) => { setCurrentGraphId(id); startNewSession(id) }}
+              onSelect={startNewChat}
             />
           </header>
 
-          {session ? (
-            <>
-              <ChatView
-                messages={messages}
-                streamingMessages={liveStream?.messages ?? []}
-                streamState={liveStream?.state ?? 'idle'}
-              />
-              <InputBar
-                streamState={liveStream?.state ?? 'idle'}
-                disabled={session?.status === 'completed'}
-                onSend={handleSend}
-                onNewChat={startNewSession}
-              />
-            </>
-          ) : (
+          {activeThread ? (
+            <ChatPane
+              // Rebuilt only when the graph changes: the hook binds a graph for
+              // the lifetime of the instance, but it follows a `threadId` prop
+              // on its own. Remounting per thread instead would leave the old
+              // thread's event streams open, and a browser only allows a
+              // handful of connections to one origin.
+              key={graphIdOf(activeThread)}
+              assistantId={graphIdOf(activeThread)}
+              threadId={activeThread.thread_id}
+              startRun={startPending === activeThread.thread_id}
+              onRunStarted={handleRunStarted}
+              onState={handleStreamState}
+            />
+          ) : missing ? (
+            // The id stays in the address: it is what the user asked for, and
+            // it stays copyable while they decide what to do about it.
+            <div className="empty-state">
+              <p>Тред не найден</p>
+            </div>
+          ) : threadsLoaded ? (
             <div className="empty-state">
               <p>Start a new chat to begin.</p>
-              <button className="new-chat-btn" onClick={() => startNewSession()}>
+              <button className="new-chat-btn" onClick={() => startNewChat(currentGraphId)}>
                 New Chat
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
-      <ErrorPopup lines={reloadErrors} onClose={() => setReloadErrors([])} />
+      <ErrorPopup lines={errors} onClose={() => setErrors([])} />
     </div>
   )
 }

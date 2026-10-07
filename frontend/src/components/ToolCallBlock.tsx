@@ -8,6 +8,20 @@ interface ToolCallBlockProps {
   call: ToolCallEvent
 }
 
+/** What the tool answered, under the arguments that were asked with. */
+function Result({ call }: ToolCallBlockProps) {
+  if (!call.result) return null
+
+  return (
+    <>
+      <div className="row-args-label">Результат</div>
+      {call.result.status === 'pending'
+        ? <div className="row-no-args">выполняется</div>
+        : <pre className="row-args"><code>{call.result.text}</code></pre>}
+    </>
+  )
+}
+
 function ToolCallBlock({ call }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
   const args = stringifyArgs(call.args)
@@ -26,6 +40,7 @@ function ToolCallBlock({ call }: ToolCallBlockProps) {
             <pre className="row-args"><code>{args}</code></pre>
           </>
         : <div className="row-no-args">нет аргументов</div>}
+      <Result call={call} />
     </CollapsibleRow>
   )
 }
@@ -40,7 +55,7 @@ export function ToolCallList({ calls }: ToolCallListProps) {
   return (
     <>
       {calls.map((call, i) => (
-        <ToolCallBlock key={i} call={call} />
+        <ToolCallBlock key={call.id ?? i} call={call} />
       ))}
     </>
   )
